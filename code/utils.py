@@ -26,7 +26,7 @@ class GraphedImage():
         self.graph = nx.Graph()
         self.N_pieces = None
         self.piece_list = self.kind0_list = self.kind1_list = self.kind2_list = []
-        self.node_list = []
+        self.node_list = [] # CAUTION : node labels start from 1
         # FUNCTIONS
         self.binarize = binarize
         self.get_slic = get_slic
@@ -36,6 +36,7 @@ class GraphedImage():
         self.add_edges = add_edges
         self.visualize_graph = visualize_graph
         self.draw_some_nodes = draw_some_nodes
+        self.get_neighbors = _get_neighbors
         # PIPELINE
         self.certain_pred, self.uncertain_pred = \
             self.binarize(self, method = 'otsu', hard_threshold = 0.5, save = True)         
@@ -47,11 +48,14 @@ class GraphedImage():
         self.kind0_list, self.kind1_list, self.kind2_list = self.sort_pieces(self)
         self.node_list = self.kind2_list
         self.add_nodes(self)
+        neighbors = self.get_neighbors(self, node = 88, narrow = 50)
+        self.mark_some_nodes(to_draw_list = 88, color = 'yellow')
+        self.mark_some_nodes(neighbors, color = 'red')
             
     def draw_graph(self):
         self.visualize_graph(self)
-    def mark_some_nodes(self, to_draw_list):
-        self.draw_some_nodes(self, to_draw_list)
+    def mark_some_nodes(self, to_draw_list, color = 'red'):
+        self.draw_some_nodes(self, to_draw_list, color = color)
         
 def binarize(self, method : str, hard_threshold : float, save : bool) -> np.array:
     assert method in ['hard threshold', 'otsu'], 'invalid binarize method'
@@ -76,10 +80,11 @@ def get_slic(self, N_pieces : int, save : bool) -> np.array:
     return slic_label, certain_pred_boundaries 
 
 class Piece():
-    def __init__(self, label : int, kind : int, center : list, coords : list, core : list):
+    def __init__(self, label : int, kind : int, center : list, slices : slice, coords : list, core : list):
         self.label = label
         self.kind = kind # 0:almost no positive, 1:only uncertain positive, 2:certain positive
         self.center = center
+        self.slices = slices
         self.coords = coords
         self.core = core
         
@@ -97,7 +102,7 @@ def register_pieces(self, cut_value : float, debug : bool) -> list:
             if self.certain_pred[coord[0], coord[1]] == 0:
                 continue
             else:
-                core_pixels.append(list(coord))
+                core_pixels.append(list(coord))        
         # kind           
         if len(core_pixels) > 0:
             kind = 2
@@ -116,7 +121,7 @@ def register_pieces(self, cut_value : float, debug : bool) -> list:
                 else:
                     core_pixels.append(list(coord))
         
-        tmp = Piece(label = piece.label, kind = kind, center = [int(y), int(x)], coords = list(piece.coords), core = core_pixels)        
+        tmp = Piece(label = piece.label, kind = kind, center = [int(y), int(x)], slices = piece.slice, coords = list(piece.coords), core = core_pixels)        
         piece_list.append(tmp)
     
     assert len(slic_props) == len(piece_list)
@@ -148,19 +153,38 @@ def add_nodes(self) -> None:
         center_y, center_x = self.piece_list[label - 1].center
         self.graph.add_node(label, y = center_y, x = center_x)
 
-def _get_neighbors(self, narrow):
+def _get_neighbors(self, node, narrow) -> list:
+    i = node - 1 # trans from node label to according self.piece_list index
+    cur_slice = self.piece_list[i].slices
+    phi = np.ones_like(self.certain_pred)
+    phi[cur_slice] -= 2 * self.certain_pred[cur_slice]
+
+    tt = skfmm.travel_time(phi, speed = self.certain_pred, narrow = narrow).astype(np.float32)    
+    neighbor_mask = np.where(tt.filled(fill_value=0) > 0, 1, 0) 
+    io.imsave('neighbor_mask.png', neighbor_mask)
+    neighbors = list(np.unique(neighbor_mask * self.slic_label))
+    print(neighbors)
+    neighbors.remove(node)
+    neighbors.remove(0)
+    
+    assert len(neighbors) > 0, f'no neighboor were found for node {node}'
+    print(f'{len(neighbors)} neighboors are selected for node {node}')
+    print(sorted(neighbors))
+    return neighbors
+
+def add_edges(self) -> None:
     pass
 
-def add_edges(self):
-    pass
-
-def draw_nodes(image : np.array, coords : list) -> np.array: # image is float btw 0,1
+def draw_nodes(image : np.array, coords : list, color : str) -> np.array: # image is float btw 0,1
+    if color == 'red' : cur_color = (1,0,0)
+    elif color == 'blue' : cur_color = (0,0,1) 
+    elif color == 'yellow' : cur_color = (1,1,0)
     for coord in coords:
         rr, cc = draw.circle_perimeter(coord[0], coord[1], 2) # radius = 2
-        image[rr, cc] = (1,0,0) # color = red
+        image[rr, cc] = cur_color # color = red
     return image
 
-def draw_some_nodes(self, to_draw_list : list, save = True):
+def draw_some_nodes(self, to_draw_list : list, color, save = True):
     if isinstance(to_draw_list, int):
         to_draw_list = [to_draw_list]
     assert len(to_draw_list) > 0, 'to_draw_list is empty'    
@@ -168,7 +192,7 @@ def draw_some_nodes(self, to_draw_list : list, save = True):
     for label in to_draw_list:
         some_centers.append(self.piece_list[label - 1].center)
     
-    marker_img = draw_nodes(self.boundaries, some_centers)
+    marker_img = draw_nodes(self.boundaries, some_centers, color = color)
     if save:
         io.imsave('marker_img.png', img_as_ubyte(marker_img)) 
         
@@ -223,13 +247,12 @@ if __name__ == '__main__':
     whole_img = io.imread(tmp_dir_for_demo)
     gt, pred = whole_img[605:605*2, :], whole_img[605*2:, :]
     del whole_img
-    # devide pred into certain and uncertain part
+
     graphedpred = GraphedImage(pred)
     piece_list = graphedpred.piece_list
     # to_draw_list = graphedpred.kind2_list
     # graphedpred.mark_some_nodes(to_draw_list)
-    graphedpred.draw_graph()
-    
+    # graphedpred.draw_graph()
     
     
     
