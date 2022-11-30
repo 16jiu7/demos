@@ -29,6 +29,7 @@ del whole_img
 graphedpred = GraphedImage(pred)
 piece_list = graphedpred.piece_list
 graphedpred.mark_some_nodes(to_draw_list = [1,2,3,7])
+print(graphedpred.graph)
 # In[]
 
 threshold = threshold_otsu(pred)
