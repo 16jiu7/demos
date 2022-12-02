@@ -44,7 +44,7 @@ class GraphedImage():
         self.certain_pred, self.uncertain_pred = \
             self.binarize(self, method = 'otsu', hard_threshold = 0.5, save = True)         
         self.slic_label, self.boundaries = \
-            self.get_slic(self, N_pieces = 2000 ,save = True)
+            self.get_slic(self, N_pieces = 3000 ,save = True)
         self.piece_list = self.register_pieces(self, cut_value = 0.1, debug = True)
         self.N_pieces = len(self.piece_list)
         
@@ -53,7 +53,7 @@ class GraphedImage():
         self.node_list = self.kind1_list + self.kind2_list
         self.add_nodes(self)
         self.add_edges(self, narrow = 200, method = 'shortest', \
-                       threshold = 200, N_link = 2) 
+                       threshold = 200, N_link = 3) 
         iso_nodes = nx.isolates(self.graph)
         self.graph.remove_nodes_from(list(iso_nodes)) 
         
@@ -229,7 +229,6 @@ def add_edges(self, narrow : int, method : str, threshold : float, N_link : int)
             targets = mean_geo_dists[:n_link]
             edges = [(label, target[0]) for target in targets]
             self.graph.add_edges_from(edges)
-            print(f'{len(edges)} are added for node {label}')
             #print(f'edge btw {label} and {target} by {target_dist : .3e} {max_dist:.3e}' )
             
     elif method == 'threshold':
@@ -294,7 +293,7 @@ def visualize_graph(self, show_graph=True, save_graph=True, \
     plt.axis((0,700,605,0))
     pos = {}
     node_list = list(graph.nodes)
-    print(node_list)
+
     for i in node_list:
         pos[i] = [graph.nodes[i]['x'], graph.nodes[i]['y']]
     
@@ -319,22 +318,22 @@ def visualize_graph(self, show_graph=True, save_graph=True, \
     plt.clf()
     plt.close()           
     
-if __name__ == '__main__':
+# if __name__ == '__main__':
     
-    tmp_dir_for_demo = '/home/jiu7/Downloads/LadderNet-master/STARE_results/im0001.png'
-    whole_img = io.imread(tmp_dir_for_demo)
-    gt, pred = whole_img[605:605*2, :], whole_img[605*2:, :]
-    del whole_img
+#     tmp_dir_for_demo = '/home/jiu7/Downloads/LadderNet-master/STARE_results/im0001.png'
+#     whole_img = io.imread(tmp_dir_for_demo)
+#     gt, pred = whole_img[605:605*2, :], whole_img[605*2:, :]
+#     del whole_img
 
-    graphedpred = GraphedImage(pred)
-    piece_list = graphedpred.piece_list
-    a = graphedpred.graph
-    # print(a)
-    # print(list(a.nodes))
-    graphedpred.draw_graph()
-    # to_draw_list = graphedpred.kind2_list
-    graphedpred.mark_some_nodes(297)
-    # graphedpred.draw_graph()
+#     graphedpred = GraphedImage(pred)
+#     piece_list = graphedpred.piece_list
+#     a = graphedpred.graph
+#     # print(a)
+#     # print(list(a.nodes))
+#     graphedpred.draw_graph()
+#     # to_draw_list = graphedpred.kind2_list
+#     graphedpred.mark_some_nodes(297)
+#     # graphedpred.draw_graph()
     
     
     
