@@ -12,23 +12,31 @@ from skimage.measure import regionprops, find_contours
 from skimage.util import img_as_float32, img_as_ubyte
 from skimage.filters import threshold_minimum, threshold_otsu
 from skimage import draw
+from skimage import color
+from skimage import morphology
 import skimage.io as io
 import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
-from networkx.drawing.layout import rescale_layout
 import skfmm
-from easydict import EasyDict as edict
+
+meta_paths = ["piece_to_piece", "piece_to_pixel", "pixel_to_pixel"]
 
 class GraphedImage():
-    def __init__(self, pred):
-        # VALUES
-        self.pred = pred
+    def __init__(self, ori, pred, mask, N_pieces):
+        # VALUES & PRECHECKS
+        self.ori = img_as_float32(ori) 
+        self.pred = img_as_float32(pred) 
+        assert self.pred is not None, "GraphedImage : pred must exist"
+        self.mask = mask
+        self.certain_threshold = "auto"
+        self.neglact_threshold = 0.01
         self.graph = nx.Graph()
-        self.N_pieces = None
+        self.N_pieces = N_pieces
         self.piece_list = self.kind0_list = self.kind1_list = self.kind2_list = []
         self.node_list = [] # CAUTION : node labels start from 1 while piece_list's index starts from 0
-        # FUNCTIONS
+        # REGISTER FUNCTIONS HERE
+        self.compute_mask = compute_mask
         self.binarize = binarize
         self.get_slic = get_slic
         self.register_pieces = register_pieces
@@ -39,16 +47,19 @@ class GraphedImage():
         self.draw_some_nodes = draw_some_nodes
         self.get_neighbors = get_neighbors
         self.get_dist = get_dist
-        self.get_dist_shortest = get_dist_shortest
-        # PIPELINE
-        self.certain_pred, self.uncertain_pred = \
-            self.binarize(self, method = 'otsu', hard_threshold = 0.5, save = True)         
+        #self.get_dist_shortest = get_dist_shortest
+        # DESCRIBE PIPELINE HERE
+        self.mask = self.compute_mask(self.ori) if self.mask is None else self.mask
+        if self.certain_threshold == "auto":
+            self.certain_pred, self.uncertain_pred, self.certain_threshold = \
+            self.binarize(self, method = 'otsu', hard_threshold = 0.5, save = True)       
         self.slic_label, self.boundaries = \
-            self.get_slic(self, N_pieces = 3000 ,save = True)
-        self.piece_list = self.register_pieces(self, cut_value = 0.1, debug = True)
-        self.N_pieces = len(self.piece_list)
+            self.get_slic(self, N_pieces = self.N_pieces ,save = True)
+        self.piece_list = self.register_pieces(self, debug = True)
+        self.actual_N_pieces = len(self.piece_list)
         
         self.kind0_list, self.kind1_list, self.kind2_list = self.sort_pieces(self)
+        #self.draw_some_nodes(self, self.kind2_list, 'red')
         self.kind_all_list = self.kind0_list + self.kind1_list + self.kind2_list
         self.node_list = self.kind1_list + self.kind2_list
         self.add_nodes(self)
@@ -61,10 +72,16 @@ class GraphedImage():
         self.visualize_graph(self)
     def mark_some_nodes(self, to_draw_list, color = 'red'):
         self.draw_some_nodes(self, to_draw_list, color = color)
+
+def compute_mask(ori):
+    ori = img_as_float32(ori)
+    mask = morphology.remove_small_holes(morphology.remove_small_objects(color.rgb2gray(ori) < 0.7, 500),500) \
+    if ori.ndim == 3 else\
+    morphology.remove_small_holes(morphology.remove_small_objects(ori < 0.7, 500),500)
+    return mask
         
 def binarize(self, method : str, hard_threshold : float, save : bool) -> np.array:
     assert method in ['hard threshold', 'otsu'], 'invalid binarize method'
-    assert self.pred.dtype == np.uint8
     pred = img_as_float32(self.pred)
     if method == 'otsu':
         threshold = threshold_otsu(pred)
@@ -73,10 +90,10 @@ def binarize(self, method : str, hard_threshold : float, save : bool) -> np.arra
     if save:
         io.imsave('certain_pred.png', img_as_ubyte(certain_pred))
         io.imsave('uncertain_pred.png', img_as_ubyte(uncertain_pred))
-    return certain_pred, uncertain_pred
+    return certain_pred, uncertain_pred, threshold
 
 def get_slic(self, N_pieces : int, save : bool) -> np.array:
-    slic_label = slic(np.stack([self.certain_pred, self.certain_pred, self.certain_pred], axis = -1), N_pieces)
+    slic_label = slic(np.stack([self.certain_pred, self.certain_pred, self.certain_pred], axis = -1), N_pieces, mask = self.mask)
     certain_pred_boundaries = mark_boundaries(self.certain_pred, slic_label, mode = 'inner',color = (0,0,1)) # blue
     uncertain_pred_boundaries = mark_boundaries(self.uncertain_pred, slic_label, mode = 'inner',color = (1,0,1))
     if save:
@@ -85,56 +102,86 @@ def get_slic(self, N_pieces : int, save : bool) -> np.array:
     return slic_label, certain_pred_boundaries 
 
 class Piece():
-    def __init__(self, label : int, kind : int, center : list, slices : slice, coords : list, core : list):
+    def __init__(self, label : int, kind : int, center : list, slices : slice, coords : list, certains : list, uncertains : list, neglactbales :list):
         self.label = label
-        self.kind = kind # 0:almost no positive, 1:only uncertain positive, 2:certain positive
+        self.kind = kind
         self.center = center
         self.slices = slices
         self.coords = coords
-        self.core = core
-        
-def register_pieces(self, cut_value : float, debug : bool) -> list:
-    piece_list = []
+        self.certains = certains
+        self.uncertains = uncertains
+        self.neglactbales = neglactbales
+        # for kind2 pieces, cores are pixels where certain_pred == 1
+        # for kind1 pieces, cores are pixels where uncertain_pred > cut_value
+        # kind0 pieces have no core
+         
+def register_pieces(self, debug : bool) -> list:
+    
+    certain_mask = self.certain_pred.astype(bool)
+    kind2_list = np.unique(self.slic_label * certain_mask)
+    kind2_list = kind2_list.tolist()
+    kind2_list.remove(0)
+
+    uncertain_mask = np.where(self.uncertain_pred > self.neglact_threshold, True, False)
+    kind1_list = np.unique(self.slic_label * uncertain_mask)
+    kind1_list = list(set(kind1_list) - set(kind2_list))
+    kind1_list.remove(0)
+
     slic_props = regionprops(self.slic_label, self.certain_pred)
+    kind0_list = [i for i in range(1, len(slic_props) + 1) if i not in kind1_list + kind2_list]
+    assert set(kind2_list + kind1_list + kind0_list) == set([i for i in range(1, len(slic_props) + 1)])
+    piece_list = [None] * len(slic_props)
     
-    for piece in slic_props:
-        # centers
+    for label in kind2_list:
+        index = label - 1
+        piece = slic_props[index] # note that slic label starts from 1 while slic_props's index from 0
         y, x = piece.centroid
-        # coords and core   
-        core_pixels = []
+        certain_pixels = uncertain_pixels = neglactbales = []
         for coord in piece.coords:
-            if self.pred[coord[0], coord[1]] >= cut_value:
-                core_pixels.append(list(coord))   
+            intensity = self.pred[coord[0], coord[1]]
+            if intensity > self.certain_threshold:
+                certain_pixels.append(list(coord))   
+            elif intensity >= self.neglact_threshold:
+                uncertain_pixels.append(list(coord))
             else:
-                continue     
-        # kind           
-        if len(core_pixels) == 0:
-            kind = 0
-            
-        elif len(core_pixels) > 0:
-            
-            if piece.intensity_max == 1:
-                kind = 2
-            else : kind = 1
+                neglactbales.append(list(coord))
+        tmp = Piece(label = label, kind = 2, center = [int(y), int(x)], 
+        slices = piece.slice, coords = list(piece.coords), certains = certain_pixels,
+        uncertains = uncertain_pixels, neglactbales = neglactbales)  
+        piece_list[index] = tmp
+    
+    for label in kind1_list:
+        index = label - 1
+        piece = slic_props[index]
+        y, x = piece.centroid
+        certain_pixels = uncertain_pixels = neglactbales = []
+        for coord in piece.coords:
+            intensity = self.pred[coord[0], coord[1]]
+            if intensity >= self.neglact_threshold:
+                uncertain_pixels.append(list(coord))
+            else:
+                neglactbales.append(list(coord))
+        tmp = Piece(label = label, kind = 1, center = [int(y), int(x)], 
+        slices = piece.slice, coords = list(piece.coords), certains = certain_pixels,
+        uncertains = uncertain_pixels, neglactbales = neglactbales)        
+        piece_list[index] = tmp
         
-        tmp = Piece(label = piece.label, kind = kind, center = [int(y), int(x)], slices = piece.slice, coords = list(piece.coords), core = core_pixels)        
-        piece_list.append(tmp)
-    
-    assert len(slic_props) == len(piece_list)
-    
+    for label in kind0_list:
+        index = label - 1
+        piece = slic_props[index]
+        y, x = piece.centroid
+        certain_pixels = uncertain_pixels = neglactbales = []
+        neglactbales = piece.coords
+        tmp = Piece(label = label, kind = 0, center = [int(y), int(x)], 
+        slices = piece.slice, coords = list(piece.coords), certains = certain_pixels,
+        uncertains = uncertain_pixels, neglactbales = neglactbales)        
+        piece_list[index] = tmp   
+        
+    assert None not in piece_list
     if not debug:
         return piece_list
     if debug:
-        N_kind0 = N_kind1 = N_kind2 = 0
-        for piece in piece_list:
-            if piece.kind == 0:
-                N_kind0 += 1
-            if piece.kind == 1:
-                N_kind1 += 1
-            elif piece.kind == 2:
-                N_kind2 += 1
-        assert N_kind0 + N_kind1 + N_kind2 == len(piece_list)        
-        print(f'{len(piece_list)} pieces found, kind0 : {N_kind0}, kind1 : {N_kind1}, kind2 : {N_kind2}')
+        print(f'{len(piece_list)} pieces found, kind0 : {len(kind0_list)}, kind1 : {len(kind1_list)}, kind2 : {len(kind2_list)}')
         return piece_list
 
 def sort_pieces(self) -> list:
@@ -146,8 +193,10 @@ def sort_pieces(self) -> list:
 
 def add_nodes(self) -> None:
     for label in self.node_list:
-        center_y, center_x = self.piece_list[label - 1].center
-        self.graph.add_node(label, y = center_y, x = center_x)
+        index = label - 1
+        center_y, center_x = self.piece_list[index].center
+        node_kind = self.piece_list[index].kind
+        self.graph.add_node(label, y = center_y, x = center_x, node_kind = node_kind)
 
 def get_neighbors(self, node, narrow) -> list:
     '''
@@ -157,14 +206,14 @@ def get_neighbors(self, node, narrow) -> list:
     i = node - 1 # trans from node label to according self.piece_list index
     cur_slice = self.piece_list[i].slices
     phi = np.ones_like(self.certain_pred)
-    phi[cur_slice] -= 2 * self.certain_pred[cur_slice]
+    phi[cur_slice] -= 2 * (self.pred > self.neglact_threshold)[cur_slice]
 
     mask = np.zeros_like(self.pred)
     [rr, cc] = draw.disk(center = self.piece_list[i].center, radius = 50, shape = self.pred.shape) 
     mask[rr, cc] = 1
     speed = self.certain_pred + self.uncertain_pred * mask
 
-    tt = skfmm.travel_time(phi, speed = speed, narrow = narrow).astype(np.float32)    
+    tt = skfmm.travel_time(phi, speed = self.pred, narrow = narrow).astype(np.float32)    
     #io.imsave('tt.png', tt)
     neighbor_mask = np.where(tt.filled(fill_value=0) > 0, 1, 0) 
     #io.imsave('neighbor_mask.png', neighbor_mask)
@@ -184,24 +233,24 @@ def get_dist(self, node : int, tt : np.array) -> float:
     '''
     index = node - 1
     sum_dist = sum_intensity = 0
-    coords = self.piece_list[index].core
+    coords = self.piece_list[index].certains + self.piece_list[index].uncertains
     for coord in coords:
         sum_dist += tt[coord[0], coord[1]]
     return (sum_dist / len(coords)).astype(np.float32)
 
-def get_dist_shortest(self, node : int, tt : np.array) -> float:
-    '''
-    get the shortest geo-dist for a specific slic piece in a specific tt map
-    child function for self.add_egdes
-    '''
-    index = node - 1
-    coords = self.piece_list[index].core
-    assert len(coords) > 0, f'node {node} has empty core'
-    dists = []
-    for coord in coords:
-        dists.append(tt[coord[0], coord[1]])
-    min_dist = min(dists)    
-    return min_dist.astype(np.float32)
+# def get_dist_shortest(self, node : int, tt : np.array) -> float:
+#     '''
+#     get the shortest geo-dist for a specific slic piece in a specific tt map
+#     child function for self.add_egdes
+#     '''
+#     index = node - 1
+#     coords = self.piece_list[index].certains
+#     assert len(coords) > 0
+#     dists = []
+#     for coord in coords:
+#         dists.append(tt[coord[0], coord[1]])
+#     min_dist = min(dists)    
+#     return min_dist.astype(np.float32)
 
 def add_edges(self, narrow : int, method : str, threshold : float, N_link : int) -> None:
     '''
@@ -212,7 +261,7 @@ def add_edges(self, narrow : int, method : str, threshold : float, N_link : int)
     
     if method == 'shortest':
 
-        for label in self.kind2_list:
+        for label in self.kind2_list + self.kind1_list:
             tt, neighbors = self.get_neighbors(self, label, narrow)
             
             tt = (tt - tt.min()) / (tt.max() - tt.min()) # normalization btw 0,1
@@ -272,10 +321,7 @@ def draw_some_nodes(self, to_draw_list : list, color, save = True):
     if save:
         io.imsave('marker_img.png', img_as_ubyte(marker_img)) 
         
-def visualize_graph(self, show_graph=True, save_graph=True, \
-                    num_nodes_each_type=None, custom_node_color=None, \
-                    tp_edges=None, fn_edges=None, fp_edges=None, \
-                    save_path='graph.png') -> None:
+def visualize_graph(self, show_graph=True, save_graph=True, save_path='graph.png') -> None:
     im = self.boundaries
     graph = self.graph
     plt.figure(figsize=(7, 6.05))
@@ -293,21 +339,22 @@ def visualize_graph(self, show_graph=True, save_graph=True, \
     plt.axis((0,700,605,0))
     pos = {}
     node_list = list(graph.nodes)
-
+    
+    # define node positions
     for i in node_list:
         pos[i] = [graph.nodes[i]['x'], graph.nodes[i]['y']]
     
-    if custom_node_color is not None:
-        node_color = custom_node_color
-    else:
-        if num_nodes_each_type is None:
-            node_color = 'b'
+    # define node colors by their kind
+    node_colors = []
+    for node in self.graph.nodes:
+        if self.graph.nodes[node]['node_kind'] == 0:
+          node_colors.append('blue')
+        elif self.graph.nodes[node]['node_kind'] == 1:
+          node_colors.append('green')
         else:
-            if not (graph.number_of_nodes()==np.sum(num_nodes_each_type)):
-                raise ValueError('Wrong number of nodes')
-            #node_color = [VIS_NODE_COLOR[0]]*num_nodes_each_type[0] + [VIS_NODE_COLOR[1]]*num_nodes_each_type[1] 
-
-    nx.draw(graph, pos, node_color='green', edge_color='red', width=0.5, node_size=5, alpha=0.5)
+          node_colors.append('red')
+    
+    nx.draw(graph, pos, node_color = node_colors, edge_color='red', width=0.5, node_size=5, alpha=0.5)
 
     if save_graph:
         plt.savefig(save_path, bbox_inches='tight', pad_inches=0, dpi = 600)
