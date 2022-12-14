@@ -27,13 +27,12 @@ del whole_img
 graphedpred = GraphedImage(ori, pred, mask, 3000) # this number of pieces as input != actual number of pieces
 piece_list = graphedpred.piece_list
 
-# In[]
 a = graphedpred.graph
 print(a)
 graphedpred.draw_graph()
 print(f'the graph has {nx.number_connected_components(a)} components')
 # In[]
-print(a.edges)
+slic_label = graphedpred.slic_label
 
 # In[]
 uncertain = graphedpred.uncertain_pred

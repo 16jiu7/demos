@@ -25,6 +25,7 @@ meta_paths = ["piece_to_piece", "piece_to_pixel", "pixel_to_pixel"]
 class GraphedImage():
     def __init__(self, ori, pred, mask, N_pieces):
         # VALUES & PRECHECKS
+        self.ISP = os.path.join('..', 'images') # debugging image save path
         self.ori = img_as_float32(ori) 
         self.pred = img_as_float32(pred) 
         assert self.pred is not None, "GraphedImage : pred must exist"
@@ -34,13 +35,12 @@ class GraphedImage():
         self.graph = nx.Graph()
         self.N_pieces = N_pieces
         self.piece_list = self.kind0_list = self.kind1_list = self.kind2_list = []
-        self.node_list = [] # CAUTION : node labels start from 1 while piece_list's index starts from 0
+        self.node_list = [] 
         # REGISTER FUNCTIONS HERE
         self.compute_mask = compute_mask
         self.binarize = binarize
         self.get_slic = get_slic
         self.register_pieces = register_pieces
-        self.sort_pieces = sort_pieces
         self.add_nodes = add_nodes
         self.add_edges = add_edges
         self.visualize_graph = visualize_graph
@@ -54,17 +54,15 @@ class GraphedImage():
             self.certain_pred, self.uncertain_pred, self.certain_threshold = \
             self.binarize(self, method = 'otsu', hard_threshold = 0.5, save = True)       
         self.slic_label, self.boundaries = \
-            self.get_slic(self, N_pieces = self.N_pieces ,save = True)
+        self.get_slic(self, N_pieces = self.N_pieces ,save = True)
         self.piece_list = self.register_pieces(self, debug = True)
         self.actual_N_pieces = len(self.piece_list)
         
-        self.kind0_list, self.kind1_list, self.kind2_list = self.sort_pieces(self)
         #self.draw_some_nodes(self, self.kind2_list, 'red')
-        self.kind_all_list = self.kind0_list + self.kind1_list + self.kind2_list
+        self.kind_all_list = [i for i in range(1, self.actual_N_pieces + 1)]
         self.node_list = self.kind1_list + self.kind2_list
         self.add_nodes(self)
-        self.add_edges(self, narrow = 200, method = 'shortest', \
-                       threshold = 200, N_link = 3) 
+        self.add_edges(self, narrow = 200, method = 'shortest', threshold = 200, N_link = 3) 
         iso_nodes = nx.isolates(self.graph)
         self.graph.remove_nodes_from(list(iso_nodes)) 
         
@@ -88,8 +86,8 @@ def binarize(self, method : str, hard_threshold : float, save : bool) -> np.arra
     certain_pred = img_as_float32(pred > threshold)
     uncertain_pred = img_as_float32(np.clip(pred - certain_pred, a_min = 0, a_max = None))
     if save:
-        io.imsave('certain_pred.png', img_as_ubyte(certain_pred))
-        io.imsave('uncertain_pred.png', img_as_ubyte(uncertain_pred))
+        io.imsave(os.path.join(self.ISP, 'certain_pred.png'), img_as_ubyte(certain_pred))
+        io.imsave(os.path.join(self.ISP, 'uncertain_pred.png'), img_as_ubyte(uncertain_pred))
     return certain_pred, uncertain_pred, threshold
 
 def get_slic(self, N_pieces : int, save : bool) -> np.array:
@@ -97,8 +95,8 @@ def get_slic(self, N_pieces : int, save : bool) -> np.array:
     certain_pred_boundaries = mark_boundaries(self.certain_pred, slic_label, mode = 'inner',color = (0,0,1)) # blue
     uncertain_pred_boundaries = mark_boundaries(self.uncertain_pred, slic_label, mode = 'inner',color = (1,0,1))
     if save:
-        io.imsave('certain_slic_res.png', img_as_ubyte(certain_pred_boundaries))
-        io.imsave('uncertain_slic_res.png', img_as_ubyte(uncertain_pred_boundaries))  
+        io.imsave(os.path.join(self.ISP, 'certain_slic_res.png'), img_as_ubyte(certain_pred_boundaries))
+        io.imsave(os.path.join(self.ISP, 'uncertain_slic_res.png'), img_as_ubyte(uncertain_pred_boundaries))
     return slic_label, certain_pred_boundaries 
 
 class Piece():
@@ -177,19 +175,15 @@ def register_pieces(self, debug : bool) -> list:
         uncertains = uncertain_pixels, neglactbales = neglactbales)        
         piece_list[index] = tmp   
         
+    # hang up results
+    self.kind0_list, self.kind1_list, self.kind2_list = kind0_list, kind1_list, kind2_list    
+        
     assert None not in piece_list
     if not debug:
         return piece_list
     if debug:
         print(f'{len(piece_list)} pieces found, kind0 : {len(kind0_list)}, kind1 : {len(kind1_list)}, kind2 : {len(kind2_list)}')
         return piece_list
-
-def sort_pieces(self) -> list:
-    self.kind0_list = [piece.label for piece in self.piece_list if piece.kind == 0] 
-    self.kind1_list = [piece.label for piece in self.piece_list if piece.kind == 1] 
-    self.kind2_list = [piece.label for piece in self.piece_list if piece.kind == 2] 
-    assert len(self.kind0_list) + len(self.kind1_list) + len(self.kind2_list) == len(self.piece_list)       
-    return self.kind0_list, self.kind1_list, self.kind2_list
 
 def add_nodes(self) -> None:
     for label in self.node_list:
@@ -208,10 +202,10 @@ def get_neighbors(self, node, narrow) -> list:
     phi = np.ones_like(self.certain_pred)
     phi[cur_slice] -= 2 * (self.pred > self.neglact_threshold)[cur_slice]
 
-    mask = np.zeros_like(self.pred)
-    [rr, cc] = draw.disk(center = self.piece_list[i].center, radius = 50, shape = self.pred.shape) 
-    mask[rr, cc] = 1
-    speed = self.certain_pred + self.uncertain_pred * mask
+    # mask = np.zeros_like(self.pred)
+    # [rr, cc] = draw.disk(center = self.piece_list[i].center, radius = 50, shape = self.pred.shape) 
+    # mask[rr, cc] = 1
+    # speed = self.certain_pred + self.uncertain_pred * mask
 
     tt = skfmm.travel_time(phi, speed = self.pred, narrow = narrow).astype(np.float32)    
     #io.imsave('tt.png', tt)
@@ -261,7 +255,7 @@ def add_edges(self, narrow : int, method : str, threshold : float, N_link : int)
     
     if method == 'shortest':
 
-        for label in self.kind2_list + self.kind1_list:
+        for label in self.kind2_list:
             tt, neighbors = self.get_neighbors(self, label, narrow)
             
             tt = (tt - tt.min()) / (tt.max() - tt.min()) # normalization btw 0,1
@@ -298,6 +292,7 @@ def add_edges(self, narrow : int, method : str, threshold : float, N_link : int)
                  continue
              else:
                  _ = [self.graph.add_edge(label, target) for target in targets]
+                
                  #print(f'edge btw {label} and {target} by {target_dist : .3e}' )
         
 def draw_nodes(image : np.array, coords : list, color : str) -> np.array: # image is float btw 0,1
@@ -319,9 +314,9 @@ def draw_some_nodes(self, to_draw_list : list, color, save = True):
     
     marker_img = draw_nodes(self.boundaries, some_centers, color = color)
     if save:
-        io.imsave('marker_img.png', img_as_ubyte(marker_img)) 
+        io.imsave(os.path.join(self.ISP, 'marker_img.png'), img_as_ubyte(marker_img))
         
-def visualize_graph(self, show_graph=True, save_graph=True, save_path='graph.png') -> None:
+def visualize_graph(self, show_graph=True, save_graph=True, save_name = 'graph.png') -> None:
     im = self.boundaries
     graph = self.graph
     plt.figure(figsize=(7, 6.05))
@@ -356,8 +351,8 @@ def visualize_graph(self, show_graph=True, save_graph=True, save_path='graph.png
     
     nx.draw(graph, pos, node_color = node_colors, edge_color='red', width=0.5, node_size=5, alpha=0.5)
 
-    if save_graph:
-        plt.savefig(save_path, bbox_inches='tight', pad_inches=0, dpi = 600)
+    if save_name is not None:
+        plt.savefig(os.path.join(self.ISP, save_name), bbox_inches='tight', pad_inches=0, dpi = 600)
     if show_graph:
         plt.show()
     
