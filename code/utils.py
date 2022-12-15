@@ -360,23 +360,6 @@ def visualize_graph(self, show_graph=True, save_graph=True, save_name = 'graph.p
     plt.clf()
     plt.close()           
     
-# if __name__ == '__main__':
-    
-#     tmp_dir_for_demo = '/home/jiu7/Downloads/LadderNet-master/STARE_results/im0001.png'
-#     whole_img = io.imread(tmp_dir_for_demo)
-#     gt, pred = whole_img[605:605*2, :], whole_img[605*2:, :]
-#     del whole_img
-
-#     graphedpred = GraphedImage(pred)
-#     piece_list = graphedpred.piece_list
-#     a = graphedpred.graph
-#     # print(a)
-#     # print(list(a.nodes))
-#     graphedpred.draw_graph()
-#     # to_draw_list = graphedpred.kind2_list
-#     graphedpred.mark_some_nodes(297)
-#     # graphedpred.draw_graph()
-    
     
     
     
