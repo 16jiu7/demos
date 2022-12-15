@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sat Nov 26 11:54:38 2022
-
+this class perform slic on predicted vessel map and connect slic pieces in an nx graph
 @author: jiu7
 """
 import os, sys
@@ -110,7 +110,7 @@ class Piece():
         self.uncertains = uncertains
         self.neglactbales = neglactbales
         # for kind2 pieces, cores are pixels where certain_pred == 1
-        # for kind1 pieces, cores are pixels where uncertain_pred > cut_value
+        # for kind1 pieces, cores are pixels where uncertain_pred > self.neglact_threshold
         # kind0 pieces have no core
          
 def register_pieces(self, debug : bool) -> list:
