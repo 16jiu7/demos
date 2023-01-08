@@ -1,9 +1,7 @@
-""" Parts of the U-Net model """
-
+""" Full assembly of the parts to form the complete network """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
@@ -47,7 +45,7 @@ class Up(nn.Module):
 
         # if bilinear, use the normal convolutions to reduce the number of channels
         if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True) 
             self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
         else:
             self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, kernel_size=2, stride=2)
@@ -75,3 +73,66 @@ class OutConv(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+class UNet_3_32(nn.Module):
+    def __init__(self, n_channels, n_classes, bilinear=False, with_feat = False):
+        super().__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.bilinear = bilinear
+        self.with_feat = with_feat
+
+        self.inc = DoubleConv(n_channels, 32)
+        self.down1 = (Down(32, 64))
+        self.down2 = (Down(64, 128))
+        factor = 2 if bilinear else 1
+        self.down3 = (Down(128, 256 // factor))
+        self.up1 = (Up(256, 128 // factor, bilinear))
+        self.up2 = (Up(128, 64 // factor, bilinear))
+        self.up3 = (Up(64, 32, bilinear))
+        self.outc = (OutConv(32, n_classes))
+
+    def forward(self, x):
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x = self.up1(x4, x3)
+        x = self.up2(x, x2)
+        x = self.up3(x, x1)
+        logits = self.outc(x)
+        if self.with_feat:
+            resizer_2x = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            resizer_4x = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)
+            feats = torch.cat([x1, resizer_2x(x2), resizer_4x(x3)], dim = 1)
+            print(feats.size())
+            return logits, feats
+        else:
+            return logits
+
+    def use_checkpointing(self):
+        self.inc = torch.utils.checkpoint(self.inc)
+        self.down1 = torch.utils.checkpoint(self.down1)
+        self.down2 = torch.utils.checkpoint(self.down2)
+        self.down3 = torch.utils.checkpoint(self.down3)
+        self.up1 = torch.utils.checkpoint(self.up1)
+        self.up2 = torch.utils.checkpoint(self.up2)
+        self.up3 = torch.utils.checkpoint(self.up3)
+        self.outc = torch.utils.checkpoint(self.outc)
+        
+        
+        
+# if __name__ == '__main__':
+    
+#     from torchsummary import summary
+#     net = UNet_3_32(3, 1, True, True)   
+#     summary(net, (3,64,64))
+
+
+
+
+
+
+
+
+     

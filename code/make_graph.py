@@ -2,7 +2,21 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sat Nov 26 11:54:38 2022
-this class perform slic on predicted vessel map and connect slic pieces in an nx graph
+this class perform slic on predicted vessel map and connect slic pieces as nodes in an nx graph
+
+node sampling scheme:
+    1.pred -> uncertain + certain, using otsu
+    2.apply SLIC on certain
+    3.sample kind2 nodes, sum(certain[node_pixels]) > 0
+    4.sample kind1 nodes, mean(uncertain[node_pixels]) + greatest k% scheme
+    5.other slic pieces are not considered as nodes
+    
+edge linking scheme:
+    1.kind2 nodes to other nodes, neighbor_screening + geo_dist + nearest k scheme
+    2.(for isolate nodes after 1.) kind1 nodes to other nodes, eu_dist + nearest k scheme
+
+
+
 @author: jiu7
 """
 import os, sys
@@ -20,8 +34,6 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import skfmm
 
-meta_paths = ["piece_to_piece", "piece_to_pixel", "pixel_to_pixel"]
-
 class GraphedImage():
     def __init__(self, ori, pred, mask, N_pieces):
         # VALUES & PRECHECKS
@@ -32,10 +44,12 @@ class GraphedImage():
         self.mask = mask
         self.certain_threshold = "auto"
         self.neglact_threshold = 0.01
+        self.kind1_ratio = 0.5 
+        # 0.5 of kind2 pieces with greater intensity on uncertain_pred are selected as kind2 nodes
         self.graph = nx.Graph()
         self.N_pieces = N_pieces
         self.piece_list = self.kind0_list = self.kind1_list = self.kind2_list = []
-        self.node_list = [] 
+        self.kind1_node_list = []
         # REGISTER FUNCTIONS HERE
         self.compute_mask = compute_mask
         self.binarize = binarize
@@ -60,11 +74,10 @@ class GraphedImage():
         
         #self.draw_some_nodes(self, self.kind2_list, 'red')
         self.kind_all_list = [i for i in range(1, self.actual_N_pieces + 1)]
-        self.node_list = self.kind1_list + self.kind2_list
         self.add_nodes(self)
-        self.add_edges(self, narrow = 200, method = 'shortest', threshold = 200, N_link = 3) 
-        iso_nodes = nx.isolates(self.graph)
-        self.graph.remove_nodes_from(list(iso_nodes)) 
+        self.mark_some_nodes([self.kind2_list, self.kind1_node_list], color = ['red', 'yellow'])
+        self.add_edges(self, narrow = 200, N_link = 3) 
+        self.graph.remove_nodes_from(list(nx.isolates(self.graph)))
         
     def draw_graph(self):
         self.visualize_graph(self)
@@ -182,20 +195,35 @@ def register_pieces(self, debug : bool) -> list:
     if not debug:
         return piece_list
     if debug:
-        print(f'{len(piece_list)} pieces found, kind0 : {len(kind0_list)}, kind1 : {len(kind1_list)}, kind2 : {len(kind2_list)}')
+        print(f'register_pieces: {len(piece_list)} pieces, kind012: [{len(kind0_list)}, {len(kind1_list)}, {len(kind2_list)}]')
         return piece_list
 
 def add_nodes(self) -> None:
-    for label in self.node_list:
+    # delete kind2 nodes that don't have enough uncertain value from node_list
+    props = regionprops(self.slic_label, intensity_image = self.uncertain_pred)
+    intensities = []
+    for label in self.kind1_list:
+        index = label - 1
+        intensity = props[index].intensity_mean
+        intensities.append((label, intensity))
+    intensities = sorted(intensities, key = lambda x : x[-1])
+    N_select = int(len(self.kind1_list) * self.kind1_ratio)
+    intensities = intensities[N_select:]
+    self.kind1_node_list = [x[0] for x in intensities]
+    node_list = self.kind2_list + self.kind1_list # not the node_list in the resultant graph
+    print(f'add_nodes: kind12 nodes:[{len(self.kind1_node_list)}, {len(self.kind2_list)}]')
+        
+    for label in node_list:
         index = label - 1
         center_y, center_x = self.piece_list[index].center
         node_kind = self.piece_list[index].kind
-        self.graph.add_node(label, y = center_y, x = center_x, node_kind = node_kind)
+        self.graph.add_node(label, y = center_y, x = center_x, node_kind = node_kind)  
 
-def get_neighbors(self, node, narrow) -> list:
+def get_neighbors(self, node : int, narrow : int, valid_list : list) -> list:
     '''
     get possible linking nodes (neighbors) for a specific node
     child function for self.add_edges
+    valid_list : only nodes in this list can be neighbors
     '''
     i = node - 1 # trans from node label to according self.piece_list index
     cur_slice = self.piece_list[i].slices
@@ -213,7 +241,8 @@ def get_neighbors(self, node, narrow) -> list:
     #io.imsave('neighbor_mask.png', neighbor_mask)
     neighbors = list(np.unique(neighbor_mask * self.slic_label))
     neighbors.remove(0)
-    neighbors = list(set(neighbors) - set(self.kind0_list + [node]))
+    neighbors = list(set(neighbors) & set(valid_list))
+    neighbors.remove(node)
     assert len(neighbors) > 0, f'no neighboor were found for node {node}'
     assert node not in neighbors
     #print(f'{len(neighbors)} neighboors are selected for node {node}')
@@ -246,54 +275,46 @@ def get_dist(self, node : int, tt : np.array) -> float:
 #     min_dist = min(dists)    
 #     return min_dist.astype(np.float32)
 
-def add_edges(self, narrow : int, method : str, threshold : float, N_link : int) -> None:
-    '''
-    decide which node(s) in neighbors are to be connected 
-    and map that opretion to all kind2 nodes
-    '''
-    assert method in ['shortest', 'threshold']
-    
-    if method == 'shortest':
+def add_edges(self, narrow : int, N_link : int) -> None:
 
-        for label in self.kind2_list:
-            tt, neighbors = self.get_neighbors(self, label, narrow)
-            
-            tt = (tt - tt.min()) / (tt.max() - tt.min()) # normalization btw 0,1
-            tt_filled = tt.filled(fill_value = 1).astype(np.float32)
-            
-            n_link = min(len(neighbors), N_link)
-            mean_geo_dists = []
-            
-            for neighboor in neighbors:
-                dist = self.get_dist(self, neighboor, tt_filled)
-                mean_geo_dists.append((neighboor, dist)) 
-                
-            mean_geo_dists = sorted(mean_geo_dists, key = lambda x : x[-1])    
-            targets = mean_geo_dists[:n_link]
-            edges = [(label, target[0]) for target in targets]
-            self.graph.add_edges_from(edges)
-            #print(f'edge btw {label} and {target} by {target_dist : .3e} {max_dist:.3e}' )
-            
-    elif method == 'threshold':
+    for label in self.kind2_list:
+        tt, neighbors = self.get_neighbors(self, label, narrow, valid_list = self.kind1_list + self.kind2_list)
         
-         for label in self.kind2_list:
-             tt, neighbors = self.get_neighbors(self, label, narrow)
-             
-             tt = (tt - tt.min()) / (tt.max() - tt.min()) # normalization btw 0,1
-             tt_filled = tt.filled(fill_value = 1).astype(np.float32)
-             
-             mean_geo_dists = []
-             for neighboor in neighbors:
-                 dist = self.get_dist(self, neighboor, tt_filled)
-                 mean_geo_dists.append((neighboor , dist)) 
-                 
-             targets = [mean_geo_dist[0] for mean_geo_dist in mean_geo_dists if mean_geo_dist[-1] < threshold]
-             if len(targets) == 0:
-                 continue
-             else:
-                 _ = [self.graph.add_edge(label, target) for target in targets]
-                
-                 #print(f'edge btw {label} and {target} by {target_dist : .3e}' )
+        tt = (tt - tt.min()) / (tt.max() - tt.min()) # normalization btw 0,1
+        tt_filled = tt.filled(fill_value = 1).astype(np.float32)
+        
+        n_link = min(len(neighbors), N_link)
+        mean_geo_dists = []
+        
+        for neighboor in neighbors:
+            dist = self.get_dist(self, neighboor, tt_filled)
+            mean_geo_dists.append((neighboor, dist)) 
+            
+        mean_geo_dists = sorted(mean_geo_dists, key = lambda x : x[-1])    
+        targets = mean_geo_dists[:n_link]
+        edges = [(label, target[0]) for target in targets]
+        self.graph.add_edges_from(edges)
+        N_stage1_edges = len(self.graph.edges)
+    print(f'add edges: kind2 -> *, {N_stage1_edges} edges added')
+        
+    # further add egdes for nodes that are still isolate (they should only be kind1 nodes)
+    # and only elements in kind1_node_list are considered as starting nodes
+    isolates = list(nx.isolates(self.graph))
+    srcs = list(set(self.kind1_node_list) & set(isolates))
+    targets = self.kind1_node_list + self.kind2_list
+    def get_dist_eu(node1, node2):
+        diffx = self.graph.nodes[node1]['x'] - self.graph.nodes[node2]['x']
+        diffy = self.graph.nodes[node1]['y'] - self.graph.nodes[node2]['y']
+        return int(diffx**2 + diffy**2)
+    for label in srcs:
+        tmp_targets = targets.copy()
+        tmp_targets.remove(label)
+        dists = [(target, get_dist_eu(label, target)) for target in tmp_targets]
+        dists = sorted(dists, key = lambda x : x[-1])
+        edges = [(label, dist[0]) for dist in dists[:N_link]]
+        self.graph.add_edges_from(edges)
+    N_stage2_edges = len(self.graph.edges) - N_stage1_edges    
+    print(f'add edges: kind1 -> *, {N_stage2_edges} edges added')
         
 def draw_nodes(image : np.array, coords : list, color : str) -> np.array: # image is float btw 0,1
     if color == 'red' : cur_color = (1,0,0)
@@ -307,18 +328,28 @@ def draw_nodes(image : np.array, coords : list, color : str) -> np.array: # imag
 def draw_some_nodes(self, to_draw_list : list, color, save = True):
     if isinstance(to_draw_list, int):
         to_draw_list = [to_draw_list]
-    assert len(to_draw_list) > 0, 'to_draw_list is empty'    
-    some_centers = []
-    for label in to_draw_list:
-        some_centers.append(self.piece_list[label - 1].center)
+    if isinstance(color, list):
+        assert len(to_draw_list) == len(color), 'to_draw_list and color should have equal length'
+    assert len(to_draw_list) > 0, 'to_draw_list is empty' 
     
-    marker_img = draw_nodes(self.boundaries, some_centers, color = color)
+    if not isinstance(color, list):
+        some_centers = []
+        for label in to_draw_list:
+            some_centers.append(self.piece_list[label - 1].center)
+        marker_img = draw_nodes(self.boundaries, some_centers, color = color)    
+    else:
+        for i, sub_color in enumerate(color):
+            tmp_img = self.boundaries
+            some_centers = []
+            for label in to_draw_list[i]:
+                some_centers.append(self.piece_list[label - 1].center)
+            tmp_img = draw_nodes(tmp_img, some_centers, color = sub_color)    
+        marker_img = tmp_img
     if save:
         io.imsave(os.path.join(self.ISP, 'marker_img.png'), img_as_ubyte(marker_img))
         
 def visualize_graph(self, show_graph=True, save_graph=True, save_name = 'graph.png') -> None:
     im = self.boundaries
-    graph = self.graph
     plt.figure(figsize=(7, 6.05))
     
     if im.dtype == np.float32:
@@ -333,23 +364,20 @@ def visualize_graph(self, show_graph=True, save_graph=True, save_name = 'graph.p
     plt.imshow(bg, cmap='gray', vmin=0, vmax=255)
     plt.axis((0,700,605,0))
     pos = {}
-    node_list = list(graph.nodes)
     
     # define node positions
-    for i in node_list:
-        pos[i] = [graph.nodes[i]['x'], graph.nodes[i]['y']]
+    for i in self.graph.nodes:
+        pos[i] = [self.graph.nodes[i]['x'], self.graph.nodes[i]['y']]
     
     # define node colors by their kind
     node_colors = []
     for node in self.graph.nodes:
-        if self.graph.nodes[node]['node_kind'] == 0:
-          node_colors.append('blue')
-        elif self.graph.nodes[node]['node_kind'] == 1:
+        if self.graph.nodes[node]['node_kind'] == 1:
           node_colors.append('green')
-        else:
+        elif self.graph.nodes[node]['node_kind'] == 2:
           node_colors.append('red')
     
-    nx.draw(graph, pos, node_color = node_colors, edge_color='red', width=0.5, node_size=5, alpha=0.5)
+    nx.draw(self.graph, pos, node_color = node_colors, edge_color='red', width=0.5, node_size=5, alpha=0.5)
 
     if save_name is not None:
         plt.savefig(os.path.join(self.ISP, save_name), bbox_inches='tight', pad_inches=0, dpi = 600)

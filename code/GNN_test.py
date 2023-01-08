@@ -5,7 +5,7 @@ Created on Tue Nov 29 18:17:23 2022
 
 @author: jiu7
 """
-from utils import GraphedImage
+from make_graph import GraphedImage
 import os, sys
 from skimage.segmentation import slic
 from skimage.segmentation import mark_boundaries
@@ -17,6 +17,7 @@ import skimage.io as io
 import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
+import datetime
 
 tmp_dir_for_demo = '/home/jiu7/Downloads/LadderNet-master/STARE_results/im0001.png'
 mask = io.imread("/home/jiu7/4_retinal_datasets/STARE/masks/im0001.gif")
@@ -24,10 +25,14 @@ whole_img = io.imread(tmp_dir_for_demo)
 ori, gt, pred = whole_img[:605, :], whole_img[605:605*2, :], whole_img[605*2:, :]
 del whole_img
 
+starttime = datetime.datetime.now()
 graphedpred = GraphedImage(ori, pred, mask, 3000) # this number of pieces as input != actual number of pieces
-piece_list = graphedpred.piece_list
+endtime = datetime.datetime.now()
+print(f'Run time : {endtime - starttime}s')
 
+piece_list = graphedpred.piece_list
 a = graphedpred.graph
+
 print(a)
 graphedpred.draw_graph()
 print(f'the graph has {nx.number_connected_components(a)} components')
