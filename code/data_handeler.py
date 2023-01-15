@@ -133,12 +133,8 @@ def get_STARE(self):
 #     hrf = RetinalDataset('HRF')
 #     stare = RetinalDataset('STARE')
     
-    
-    
-    
-    
-    
-    
+        
+        
     
     
     

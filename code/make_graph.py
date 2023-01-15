@@ -216,8 +216,9 @@ def add_nodes(self) -> None:
     for label in node_list:
         index = label - 1
         center_y, center_x = self.piece_list[index].center
+        slices = self.piece_list[index].slices
         node_kind = self.piece_list[index].kind
-        self.graph.add_node(label, y = center_y, x = center_x, node_kind = node_kind)  
+        self.graph.add_node(label, y = center_y, x = center_x, slices = slices, node_kind = node_kind)  
 
 def get_neighbors(self, node : int, narrow : int, valid_list : list) -> list:
     '''

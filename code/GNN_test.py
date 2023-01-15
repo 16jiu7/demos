@@ -18,24 +18,31 @@ import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
 import datetime
+from handcrafted_feats import hand_feats_extractor
 
 tmp_dir_for_demo = '/home/jiu7/Downloads/LadderNet-master/STARE_results/im0001.png'
 mask = io.imread("/home/jiu7/4_retinal_datasets/STARE/masks/im0001.gif")
 whole_img = io.imread(tmp_dir_for_demo)
-ori, gt, pred = whole_img[:605, :], whole_img[605:605*2, :], whole_img[605*2:, :]
-del whole_img
+_, gt, pred = whole_img[:605, :], whole_img[605:605*2, :], whole_img[605*2:, :]
+ori = io.imread('/home/jiu7/4_retinal_datasets/STARE/images/im0001.ppm')
 
 starttime = datetime.datetime.now()
-graphedpred = GraphedImage(ori, pred, mask, 3000) # this number of pieces as input != actual number of pieces
+graphedpred = GraphedImage(ori, pred, mask, 2000) # this number of pieces as input != actual number of pieces
 endtime = datetime.datetime.now()
 print(f'Run time : {endtime - starttime}s')
 
 piece_list = graphedpred.piece_list
-a = graphedpred.graph
-
-print(a)
 graphedpred.draw_graph()
-print(f'the graph has {nx.number_connected_components(a)} components')
+a = graphedpred.graph
+print(f'the graph has {nx.number_connected_components(a)} components\n')
+
+label_slices = [(label, a.nodes[label]['slices']) for label in a.nodes]
+starttime = datetime.datetime.now()
+print('extracting hand-crafted node features')
+feats = hand_feats_extractor(ori, label_slices)
+endtime = datetime.datetime.now()
+print(f'Run time : {endtime - starttime}s')    
+
 # In[]
 slic_label = graphedpred.slic_label
 
