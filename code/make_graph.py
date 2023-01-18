@@ -22,7 +22,7 @@ edge linking scheme:
 import os, sys
 from skimage.segmentation import slic
 from skimage.segmentation import mark_boundaries
-from skimage.measure import regionprops, find_contours
+from skimage.measure import regionprops
 from skimage.util import img_as_float32, img_as_ubyte
 from skimage.filters import threshold_minimum, threshold_otsu
 from skimage import draw
