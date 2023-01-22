@@ -15,12 +15,14 @@ from skimage.measure import regionprops
 import random
 from random import sample, shuffle
 import os
-from scipy.stats import shapiro, mannwhitneyu, levene, ttest_ind, normaltest
+from scipy.stats import shapiro, mannwhitneyu, levene, ttest_ind, normaltest, zscore
+import torch
 
 N_SLIC_EACH = 2000
 N_POS = N_NEG = 10000
 SEED = 10
 ALPHA = 0.05
+STD = True
 random.seed(SEED)
 drive = RetinalDataset('DRIVE')
 drive_train = drive.all_training
@@ -44,6 +46,9 @@ else:
     feats_vessel = np.load('feats_vessel.npy', allow_pickle = True).item()  
     feats = feats_vessel['feats']
     if_vessel = feats_vessel['if_vessel']
+
+if STD:
+    feats = zscore(feats, axis = 0, ddof = 1, nan_policy = 'raise')
 
 positive_idxs = [i for i, x in enumerate(if_vessel) if x]
 negative_idxs = [i for i, x in enumerate(if_vessel) if not x]
@@ -100,8 +105,11 @@ for useful_feat_idx in useful_feats_idx:
 
 print(f'discriminate VS not = {np.sum(is_discriminate)} : {N_feats - np.sum(is_discriminate)}')    
 print('feats discriminate for classification:')
-_ = [print(flag) for i, flag in enumerate(flags) if is_discriminate[i]]        
+_ = [print(flag) for i, flag in enumerate(feature_flags) if is_discriminate[i]]        
         
+# In[]
+
+
         
 
  

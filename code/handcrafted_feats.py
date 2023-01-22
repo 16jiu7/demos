@@ -41,12 +41,13 @@ def compute_all_geo_feats(label_img, intensity_img, needed_labels):
     
     
 
-def hand_feats_extractor(img: np.uint, label_slices: list, label_img = None, intensity_img = None) -> dict:
+def hand_feats_extractor(img: np.uint, label_slices: list, label_img = None, intensity_img = None) -> np.array:
     '''
     img: the whole image
     label_slices: [(node_label, slices),... ]
-    output: [(node_label, feats),...]
-    label_im and intensity are needed for geo_feats
+    label_img: slic label
+    intensity_img: pred
+    return: N_pieces * N_feats
     '''
     # modify label_img to avoid feat computing for regions that are not in label_slices
     needed_labels = [i[0] for i in label_slices]

@@ -19,6 +19,10 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import datetime
 from handcrafted_feats import hand_feats_extractor
+from data_handeler import RetinalDataset
+import models.GAT
+from scipy.stats import shapiro, mannwhitneyu, levene, ttest_ind, normaltest, zscore
+# In[]
 
 tmp_dir_for_demo = '/home/jiu7/Downloads/LadderNet-master/STARE_results/im0001.png'
 mask = io.imread("/home/jiu7/4_retinal_datasets/STARE/masks/im0001.gif")
@@ -27,7 +31,7 @@ _, gt, pred = whole_img[:605, :], whole_img[605:605*2, :], whole_img[605*2:, :]
 ori = io.imread('/home/jiu7/4_retinal_datasets/STARE/images/im0001.ppm')
 
 starttime = datetime.datetime.now()
-graphedpred = GraphedImage(ori, pred, mask, 2000) # this number of pieces as input != actual number of pieces
+graphedpred = GraphedImage(ori, pred, mask, 3000) # this number of pieces as input != actual number of pieces
 endtime = datetime.datetime.now()
 print(f'Run time : {endtime - starttime}s')
 
@@ -39,19 +43,48 @@ print(f'the graph has {nx.number_connected_components(a)} components\n')
 label_slices = [(label, a.nodes[label]['slices']) for label in a.nodes]
 starttime = datetime.datetime.now()
 print('extracting hand-crafted node features')
-feats = hand_feats_extractor(ori, label_slices)
+feats = hand_feats_extractor(img = ori, label_slices = label_slices, label_img = graphedpred.slic_label, intensity_img = pred)
+feats = zscore(feats, axis = 0, ddof = 1, nan_policy = 'raise')
 endtime = datetime.datetime.now()
 print(f'Run time : {endtime - starttime}s')    
 
 # In[]
-slic_label = graphedpred.slic_label
 
-# In[]
-uncertain = graphedpred.uncertain_pred
-threshold = threshold_otsu(uncertain)
-print(threshold)
-enhanced_uncertain = np.where(uncertain > threshold, 1, 0)
-io.imsave('enhanced_uncertain.png', enhanced_uncertain)
+drive = RetinalDataset('DRIVE')
+drive_train = drive.all_training
+
+'''
+input for GAT: 
+1.node feats: (N_nodes, N_feats)
+2.edges: (2, N_edges)
+'''
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
