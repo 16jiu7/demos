@@ -9,6 +9,7 @@ from skimage.measure import regionprops
 from make_graph_light import GraphedImage
 from data_handeler import RetinalDataset
 import networkx as nx
+import datetime
 
 GAT_INPUT_N_FEATS = 224
 GAT_OUTPUT_N_FEATS = 224
@@ -142,9 +143,10 @@ class UNet_3_32(nn.Module):
         
         
 if __name__ == '__main__':
-    # get data
+    starttime = datetime.datetime.now()
+
     data = RetinalDataset('DRIVE').all_training[0] # the first training img in DRIVE
-    graphedpred = GraphedImage(data.pred, data.fov_mask, 100)
+    graphedpred = GraphedImage(data.pred, data.fov_mask, 1500)
     # define net
     net = UNet_3_32(3, 2)  
     checkpoint = torch.load('../weights/UNet_3_32.pt7')
@@ -182,12 +184,11 @@ if __name__ == '__main__':
     # once we got node_feats, we can relabel the graph 
     mapping = {}
     old_labels = list(graphedpred.graph.nodes)
-    new_labels = [i for i in range(1, len(old_labels) + 1)]
+    new_labels = [i for i in range(len(old_labels))]
     for i, old_label in enumerate(old_labels): mapping[old_label] = new_labels[i]
     relabeled_graph = nx.relabel_nodes(graphedpred.graph, mapping)
     edges = list(relabeled_graph.edges)
     edges = torch.Tensor(edges).long().transpose(1,0) # shape = (2, E), data type = torch.long for GAT use
-    edges = edges - 1
     # print(relabeled_graph.nodes)
     # print(edges)
     graph_data = (node_feats, edges)
@@ -196,6 +197,9 @@ if __name__ == '__main__':
                num_features_per_layer = [GAT_INPUT_N_FEATS, 224, 224, 224, GAT_OUTPUT_N_FEATS], dropout = 0)
     
     node_feats_gat, _ = gat(graph_data)
+    
+    endtime = datetime.datetime.now()
+    print(f'Run time : {endtime - starttime}s')
     # def GetFirstPCNN(img, net):
     #     # get temp CNN pred result, used in node sampling & graph building
     #     # net in no_gnn mode
