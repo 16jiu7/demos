@@ -11,7 +11,7 @@ from skimage.util import img_as_float32, img_as_ubyte
 import numpy as np
 
 # GLOBAL SETTINGS
-DRD = os.path.join('/', 'home', 'jiu7', '4_retinal_datasets') # Dataset Root Dir
+DRD = os.path.join('..', '4_retinal_datasets') # Dataset Root Dir
 DRIVE_SPLIT = (15, 5, 20) # number of training, val and test images resp.
 CHASEDB_SPLIT = (12, 2, 14)
 HRF_SPLIT = (13, 2, 30)
@@ -70,7 +70,9 @@ def get_DRIVE(self):
             ori = io.imread(os.path.join(DRD, 'DRIVE', 'images', img_name))
             fov_mask = io.imread(os.path.join(DRD, 'DRIVE', 'masks', f'{ID}_mask.gif'))
             gt = io.imread(os.path.join(DRD, 'DRIVE', 'manual', f'{ID}_manual1.gif'))
+            pred = io.imread(os.path.join(DRD, 'DRIVE', 'preds', f'{ID}.png'))
             drive_instance = single_data(ID, ori, fov_mask, gt, split)
+            drive_instance.pred = pred
             all_DRIVE.append(drive_instance)
             
     return all_DRIVE    
@@ -87,7 +89,9 @@ def get_CHASEDB(self):
             ori = io.imread(os.path.join(DRD, 'CHASEDB', 'images', img_name))
             fov_mask = io.imread(os.path.join(DRD, 'CHASEDB', 'masks', f'Image_{ID}.gif'))
             gt = io.imread(os.path.join(DRD, 'CHASEDB', 'manual', f'Image_{ID}_1stHO.png'))
+            pred = io.imread(os.path.join(DRD, 'CHASEDB', 'preds', f'{ID}.png'))
             chasedb_instance = single_data(ID, ori, fov_mask, gt, split)
+            chasedb_instance.pred = pred
             all_CHASEDB.append(chasedb_instance)
         
     return all_CHASEDB      
@@ -106,7 +110,9 @@ def get_HRF(self):
             ori = io.imread(os.path.join(DRD, 'HRF', 'images', img_name))
             fov_mask = io.imread(os.path.join(DRD, 'HRF', 'masks', f'{ID}.png'))
             gt = io.imread(os.path.join(DRD, 'HRF', 'manual1', f'{ID}.png'))
+            pred = io.imread(os.path.join(DRD, 'HRF', 'preds', f'{ID}.png'))
             HRF_instance = single_data(ID, ori, fov_mask, gt, split)
+            HRF_instance.pred = pred
             all_HRF.append(HRF_instance) 
         
     return all_HRF  
@@ -122,7 +128,10 @@ def get_STARE(self):
             ori = io.imread(os.path.join(DRD, 'STARE', 'images', img_name))
             fov_mask = io.imread(os.path.join(DRD, 'STARE', 'masks', f'{ID}.gif'))
             gt = io.imread(os.path.join(DRD, 'STARE', 'labels-ah', f'{ID}.ah.pgm'))
-            all_STARE.append(single_data(ID, ori, fov_mask, gt, split))
+            pred = io.imread(os.path.join(DRD, 'STARE', 'preds', f'{ID}.png'))
+            stare_instance = single_data(ID, ori, fov_mask, gt, split)
+            stare_instance.pred = pred
+            all_STARE.append(stare_instance)
         
     return all_STARE         
     
@@ -132,6 +141,7 @@ def get_STARE(self):
 #     chasedb = RetinalDataset('CHASEDB')
 #     hrf = RetinalDataset('HRF')
 #     stare = RetinalDataset('STARE')
+#     drive_all = drive.all_data
     
         
         

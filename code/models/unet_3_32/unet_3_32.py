@@ -3,6 +3,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+
+
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
 
@@ -123,10 +126,10 @@ class UNet_3_32(nn.Module):
         
         
 # if __name__ == '__main__':
-    
-#     from torchsummary import summary
-#     net = UNet_3_32(3, 1, True, True)   
-#     summary(net, (3,64,64))
+#     net = UNet_3_32(3, 2)  
+#     checkpoint = torch.load('../weights/UNet_3_32.pt7')
+#     net.load_state_dict(checkpoint['net'])
+     
 
 
 

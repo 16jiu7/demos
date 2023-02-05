@@ -9,18 +9,19 @@ eu-dist for neighbor screening
 nearest-k eu-dist to get edges
 @author: jiu7
 """
-import os, sys
+import os
 from skimage.segmentation import slic
 from skimage.segmentation import mark_boundaries
 from skimage.measure import regionprops
-from skimage.util import img_as_float32, img_as_ubyte, img_as_bool
+from skimage.util import img_as_ubyte, img_as_bool
 from skimage.filters import threshold_minimum, threshold_otsu
 from skimage import draw
 import skimage.io as io
 import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
-import datetime
+import torch
+
 
 class GraphedImage():
     def __init__(self, pred, mask, N_pieces):
@@ -43,6 +44,7 @@ class GraphedImage():
         self.visualize_graph = visualize_graph
         self.draw_some_nodes = draw_some_nodes
         self.graph_integrate = graph_integrate
+        self.make_edge_id_tensor = make_edge_id_tensor
         # DESCRIBE PIPELINE HERE
         self.certain_pred, self.uncertain_pred, self.certain_threshold = self.binarize(self, True)       
         self.slic_label, self.boundaries = self.get_slic(self, N_pieces = self.N_pieces)
@@ -50,6 +52,7 @@ class GraphedImage():
         self.add_edges(self, narrow = self.narrow, N_link = self.N_links, src_list = list(self.graph.nodes), valid_tar_list = list(self.graph.nodes)) 
         self.graph.remove_nodes_from(list(nx.isolates(self.graph)))
         self.graph_integrate(self)
+        self.edge_index = self.make_edge_id_tensor(self)
         print('make_graph:', self.graph)
         
     def mark_some_nodes(self, to_draw_list, color):
@@ -112,11 +115,11 @@ def add_edges(self, narrow, N_link, src_list, valid_tar_list) -> None:
         tars = np.array(tars, dtype = np.uint32)
         topk_tars = tars[rank[:k]]
         return list(topk_tars)
-    
+        
     for label in src_list:
+        
         neighbors, actual_N_link = get_neighbors(label, narrow, valid_tars = valid_tar_list)
         targets = get_topk_dist_eu(label, neighbors, actual_N_link)
-
         edges = [(label, target) for target in targets]
         self.graph.add_edges_from(edges)
 
@@ -131,7 +134,11 @@ def graph_integrate(self):
     for src in srcs:
         self.add_edges(self, self.intergrate_narrow, self.N_links, src_list = srcs, valid_tar_list = list(set(self.graph.nodes) - set(srcs)))
     
-
+def make_edge_id_tensor(self):
+    # shape = (2, E), data type = torch.long for GAT use
+    edges = list(self.graph.edges)
+    edges = torch.Tensor(edges).long().transpose(1,0)
+    return edges
 
 def draw_some_nodes(self, to_draw_list : list, color, save = True):
     
@@ -208,26 +215,25 @@ def visualize_graph(self, show_graph=True, save_graph=True, save_name = 'graph.p
     
     
 # In[]
-from data_handeler import RetinalDataset
-from glob import glob
-from os import listdir
+# from data_handeler import RetinalDataset
+# from os import listdir
 
-pred_dir = '/home/jiu7/Downloads/LadderNet-master/STARE_results/'
-names = listdir(pred_dir)
-stare = RetinalDataset('STARE').all_data
-for i, data in enumerate(stare):
-     pred = io.imread(pred_dir + data.ID + '.png')[605*2:, :]
-     stare[i].pred = pred
+# pred_dir = '/home/jiu7/Downloads/LadderNet-master/STARE_results/'
+# names = listdir(pred_dir)
+# stare = RetinalDataset('STARE').all_data
+# for i, data in enumerate(stare):
+#       pred = io.imread(pred_dir + data.ID + '.png')[605*2:, :]
+#       stare[i].pred = pred
      
-for data in stare:
-    pred = data.pred
-    mask = data.fov_mask
-    starttime = datetime.datetime.now()
-    graphedpred = GraphedImage(pred, mask, 2000)
-    endtime = datetime.datetime.now()
-    print(f'Run time : {endtime - starttime}s')
+# for data in stare:
+#     pred = data.pred
+#     mask = data.fov_mask
+#     starttime = datetime.datetime.now()
+#     graphedpred = GraphedImage(pred, mask, 3000)
+#     endtime = datetime.datetime.now()
+#     print(f'Run time : {endtime - starttime}s')
     
-    graphedpred.visualize_graph(graphedpred, save_name = f'{data.ID}_graph.png') 
+#     graphedpred.visualize_graph(graphedpred, save_name = f'{data.ID}_graph.png') 
 
     
     
