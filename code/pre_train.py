@@ -13,19 +13,22 @@ from tqdm import tqdm
 import random
 import torch
 from torch import nn 
+from torch.cuda.amp import GradScaler, autocast
+scaler = GradScaler()
 from copy import deepcopy
 from data_handeler import RetinalDataset
 from torch.utils.data import Dataset, DataLoader
 from models.unet_gat import UNet_3_32
-from torchmetrics.classification import BinaryAUROC, Accuracy, Precision, Recall, Specificity, F1Score
+from torchmetrics.classification import BinaryAveragePrecision, BinaryAUROC, Accuracy, Precision, Recall, Specificity, F1Score
 from torchvision.transforms import ToTensor
 from albumentations.augmentations.geometric.rotate import RandomRotate90
-from albumentations.augmentations.geometric.transforms import Flip
+from albumentations.augmentations.geometric.transforms import Flip, Affine
 from albumentations.augmentations.transforms import ColorJitter
 from albumentations.augmentations.geometric.resize import Resize
 import albumentations as A
-from torch.nn import BCEWithLogitsLoss
 totensor = ToTensor()
+
+USE_AMP = False
 
 def setup_random_seed(seed):
      torch.manual_seed(seed)
@@ -34,15 +37,11 @@ def setup_random_seed(seed):
      random.seed(seed)
      torch.backends.cudnn.deterministic = True
 
-
-def get_test_resizer(dataset_name):    
-    test_resizer = A.Compose([Resize(*INPUT_SIZE[dataset_name])]) 
-    return test_resizer
-
 class TrainDataset(Dataset):
-    def __init__(self, dataset_name, split):
+    def __init__(self, dataset_name, split, transforms = None):
         self.split = split
         self.dataset_name = dataset_name
+        self.transforms = transforms
         if split == 'train':
             self.data = RetinalDataset(self.dataset_name, cropped = True).all_training
         elif split == 'val':
@@ -56,18 +55,15 @@ class TrainDataset(Dataset):
     def __getitem__(self, idx):
         
         if self.split == 'test':
-            # give img that was cropped to fov and resized to INPUT_SIZE with original gt, bbox to enable resized prediction 
-            cropped_img, gt = self.data[idx].cropped_ori, self.data[idx].gt
-            test_resizer = get_test_resizer(self.dataset_name)
-            transformed = test_resizer(image = cropped_img)
-            resized_cropped_img = transformed['image']
-            return totensor(resized_cropped_img), totensor(gt), self.data[idx].bbox, self.data[idx].ID
+            cropped_img, gt = self.data[idx].cropped_ori, self.data[idx].gt # give cropped ori & non-cropped gt
+            return totensor(cropped_img).cuda(), totensor(gt).cuda(), self.data[idx].bbox, self.data[idx].ID
         
         if self.split in ['train', 'val']:
             img, gt = self.data[idx].ori, self.data[idx].gt
-            transformed = transforms(image = img, mask = gt)
-            img, gt = transformed['image'], transformed['mask']
-            return totensor(img), totensor(gt) 
+            if self.transforms:
+                transformed = self.transforms(image = img, mask = gt)
+                img, gt = transformed['image'], transformed['mask']
+            return totensor(img).cuda(), totensor(gt).cuda()
     
 
 
@@ -77,29 +73,46 @@ def printlog(info):
     print(str(info)+"\n")
 
 class StepRunner:
-    def __init__(self, net, loss_fn,
+    def __init__(self, net, Loss_fn,
                  stage = "train", metrics_dict = None, 
                  optimizer = None
                  ):
-        self.net,self.loss_fn,self.metrics_dict,self.stage = net,loss_fn,metrics_dict,stage
+        self.net,self.Loss_fn,self.metrics_dict,self.stage = net,Loss_fn,metrics_dict,stage
         self.optimizer = optimizer
             
     def step(self, features, labels):
-        #loss
-        preds = self.net(features)
-        preds = preds[:,0,:,:].unsqueeze(1)
-        loss = self.loss_fn(preds,labels)
+        with torch.no_grad():
+            weight = torch.zeros(2, dtype = torch.float)
+            beta = (labels.sum() / (labels.shape[2] * labels.shape[3])).float() # beta < 0.5
+            weight[0], weight[1] = beta, 1 - beta
+            print(weight)
+            
+        loss_fn = self.Loss_fn(weight = weight.cuda()) # instantiate
         
+        if USE_AMP:
+            with autocast():
+                preds = self.net(features)
+                loss =loss_fn(preds,labels.squeeze(1).long())
+        else:
+            preds = self.net(features)
+            loss = loss_fn(preds,labels.squeeze(1).long())
+
         #backward()
         if self.optimizer is not None and self.stage=="train": 
-            loss.backward()
-            self.optimizer.step()
-            self.optimizer.zero_grad()
-            
+            if USE_AMP:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+            else:
+                loss.backward()
+                self.optimizer.step()
+                self.optimizer.zero_grad()
         #metrics
-        step_metrics = {self.stage+"_"+name:metric_fn(preds, labels).item() 
+        step_metrics = {self.stage+"_"+name:metric_fn(preds[:,1,:,:], labels).item() 
                         for name,metric_fn in self.metrics_dict.items()}
-        return loss.item(),step_metrics
+        return loss.item(), step_metrics
     
     def train_step(self,features,labels):
         self.net.train() #训练模式, dropout层发生作用
@@ -155,7 +168,7 @@ def train_model(net, optimizer, loss_fn, metrics_dict,
 
         # 1，train -------------------------------------------------  
         train_step_runner = StepRunner(net = net,stage="train",
-                loss_fn = loss_fn,metrics_dict = deepcopy(metrics_dict),
+                Loss_fn = loss_fn,metrics_dict = deepcopy(metrics_dict),
                 optimizer = optimizer)
         train_epoch_runner = EpochRunner(train_step_runner)
         train_metrics = train_epoch_runner(train_data)
@@ -166,7 +179,7 @@ def train_model(net, optimizer, loss_fn, metrics_dict,
         # 2，validate -------------------------------------------------
         if val_data:
             val_step_runner = StepRunner(net = net,stage="val",
-                loss_fn = loss_fn,metrics_dict=deepcopy(metrics_dict))
+                Loss_fn = loss_fn,metrics_dict=deepcopy(metrics_dict))
             val_epoch_runner = EpochRunner(val_step_runner)
             with torch.no_grad():
                 val_metrics = val_epoch_runner(val_data)
@@ -204,7 +217,8 @@ def get_net(net): #获得预训练模型并冻住前面层的参数
 if __name__ == '__main__':
     
     TRAIN_DATASETS = ['DRIVE', 'CHASEDB', 'HRF', 'STARE']    
-    INPUT_SIZE = {'DRIVE': [512, 512], 'CHASEDB':[1024, 1024], 'HRF':[1024, 1024], 'STARE':[1024, 1024]}
+    TRAIN_DATASETS = ['CHASEDB']    
+    TRAIN_INPUT_SIZE = {'DRIVE': [584, 565], 'CHASEDB':[960, 999], 'HRF':[2336, 3504], 'STARE':[605, 700]}
     # INPUT_SIZE also used in test: cropped imgs are resized to INPUT_SIZE, then the prediction results
     # are upsampled and expanded to match gt
     for TRAIN_DATASET in TRAIN_DATASETS:
@@ -214,49 +228,62 @@ if __name__ == '__main__':
         
         # data augmentations
         brightness, contrast, saturation, hue = 0.25, 0.25, 0.25, 0.01
-        transforms = A.Compose([Resize(*INPUT_SIZE[TRAIN_DATASET]), RandomRotate90(p = 0.5), Flip(p = 0.5),
+        transforms = A.Compose([Resize(*TRAIN_INPUT_SIZE[TRAIN_DATASET]), RandomRotate90(p = 0.5), Flip(p = 0.5),
+                                Affine(scale = (0.95, 1.2), translate_percent = 0.05, rotate = (-45, 45)),
                                 ColorJitter(brightness, contrast, saturation, hue, always_apply = True)])
-
-        train_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'train')
-        val_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'val')
+        val_resizer = A.Compose([Resize(*TRAIN_INPUT_SIZE[TRAIN_DATASET])])
+        
+        # colorjitter severely affects performance
+        if TRAIN_DATASET in ['DRIVE', 'CHASEDB', 'STARE']:
+            train_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'train', transforms = transforms)
+            val_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'val', transforms = None)
+            
+        elif TRAIN_DATASET == 'HRF': # HRF images are too large, need resizer
+            train_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'train', transforms = transforms)
+            val_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'val', transforms = val_resizer)
+            
+        train_loader = DataLoader(train_set, batch_size = 1, num_workers = 0)
+        val_loader = DataLoader(val_set, batch_size = 1, num_workers = 0)
     
-        train_loader = DataLoader(train_set, batch_size = 1, num_workers = 4)
-        val_loader = DataLoader(val_set, batch_size = 1, num_workers = 4)
     
+        net = UNet_3_32(3, 2).cuda()
     
-        net = UNet_3_32(3, 2)
-    
-        loss_fn = nn.BCEWithLogitsLoss()
-        optimizer= torch.optim.Adam(net.parameters(),lr = 1e-3)   
-        auroc = BinaryAUROC(thresholds=None)
+        loss_fn = nn.CrossEntropyLoss
+        optimizer= torch.optim.Adam(net.parameters(),lr = 1e-2, weight_decay = 5e-4)   
+        auroc = BinaryAUROC(thresholds=None).cuda()
         metrics_dict = {"AUROC": auroc}
         
         dfhistory = train_model(net,
             optimizer,
             loss_fn,
-            metrics_dict,
+            metrics_dict,            
             train_data = train_loader,
             val_data= val_loader,
-            epochs = 100,
+            epochs = 5000,
             ckpt_path = f'../weights/pre_training/{TRAIN_DATASET}_pre.pt',
-            patience = 30,
+            patience = 1000,
             monitor = "val_AUROC", 
             mode = "max")
 
+        torch.cuda.empty_cache()
 # In[]
 
     # test for pre-training
     TEST_THRESH = 0.5 # the theshold used when calculating f1, acc, precision, recall, spe
+    TEST_INPUT_SIZE = {'DRIVE': [584, 565], 'CHASEDB':[960, 999], 'HRF':[1024, 1552], 'STARE':[605, 700]}
+    #assert TEST_INPUT_SIZE == TRAIN_INPUT_SIZE
     TEST_DATASETS = ['DRIVE', 'CHASEDB', 'HRF', 'STARE']
+    TEST_DATASETS = ['CHASEDB']
     PREDS_SAVE_DIR = '../preds/pre_training/' # preds saved here
     # define metrics
-    auroc = BinaryAUROC(thresholds=None)
-    acc = Accuracy(task = 'binary', threshold = TEST_THRESH)
-    precision = Precision(task = 'binary', threshold = TEST_THRESH) 
-    recall = Recall(task = 'binary', threshold = TEST_THRESH) 
-    spe = Specificity(task = 'binary', threshold = TEST_THRESH) 
-    f1 = F1Score(task = 'binary', threshold = TEST_THRESH)
-    test_metrics = {'AUROC': auroc, 'f1': f1, 'acc': acc, 'pricision': precision, 'recall': recall, 'spe':spe}
+    ap = BinaryAveragePrecision(thresholds=None).to('cuda')
+    auroc = BinaryAUROC(thresholds=None).to('cuda')
+    f1 = F1Score(task = 'binary', threshold = TEST_THRESH).to('cuda')
+    acc = Accuracy(task = 'binary', threshold = TEST_THRESH).to('cuda')
+    precision = Precision(task = 'binary', threshold = TEST_THRESH).to('cuda')
+    recall = Recall(task = 'binary', threshold = TEST_THRESH).to('cuda')
+    spe = Specificity(task = 'binary', threshold = TEST_THRESH).to('cuda')
+    test_metrics = {'AP': ap, 'AUROC': auroc, 'f1': f1, 'acc': acc, 'pricision': precision, 'recall': recall, 'spe':spe}
     
     def test_1_pred(pred: torch.Tensor, gt: torch.Tensor, metrics: dict) -> list:
         # get every metric for 1 prediction, inputs are 2D tensors
@@ -268,7 +295,7 @@ if __name__ == '__main__':
         return results
     
     
-    net = UNet_3_32(3, 2)
+    net = UNet_3_32(3, 2).cuda()
     
     all_results = {}
     
@@ -281,28 +308,31 @@ if __name__ == '__main__':
         
         checkpoint = torch.load(f'../weights/pre_training/{DATASET_NAME}_pre.pt')
         net.load_state_dict(checkpoint)
-        #net.cuda()
         net.eval()
         
         test_set = TrainDataset(dataset_name = DATASET_NAME, split = 'test')
-        test_loader = DataLoader(test_set, batch_size = 1, num_workers = 4)
+        test_loader = DataLoader(test_set, batch_size = 1, num_workers = 0)
         
         results_for_1_dataset = []
         with torch.no_grad():
             # get pred vessel map
-            for resized_cropped_img, gt, bbox, ID in test_loader:
-                bbox_resizer = nn.Upsample(size = (bbox[2] - bbox[0], bbox[3] - bbox[1]), mode='bilinear', align_corners=True)
+            for cropped_img, gt, bbox, ID in test_loader:
                 
-                inputs, gt = resized_cropped_img.cpu(), gt.cpu()
-                pred = nn.functional.softmax(net(inputs), dim=1)
+                if DATASET_NAME == 'HRF':
+                    bbox_resizer = nn.Upsample(size = (bbox[2] - bbox[0], bbox[3] - bbox[1]), mode='bilinear', align_corners=True)
+                    cropped_img = bbox_resizer(cropped_img)
+                    
+                inputs, gt = cropped_img.cuda(), gt.cuda()
+                
+                pred = nn.functional.softmax(net(cropped_img), dim=1)
 
                 # refine pred so that it has same shape like gt  
-                pred = bbox_resizer(pred)[0,0]
+                pred = pred[0,1]
                 gt = gt[0,0]
                 tmp = torch.zeros_like(gt)
                 tmp[bbox[0]:bbox[2], bbox[1]:bbox[3]] = pred
                 refined_pred = tmp
-                io.imsave(SAVE_PATH + ID[0] + '.png', img_as_ubyte(refined_pred.numpy()))
+                io.imsave(SAVE_PATH + ID[0] + '.png', img_as_ubyte(refined_pred.cpu().numpy()))
                 
                 results_for_1 = test_1_pred(refined_pred, gt, test_metrics)
                 results_for_1_dataset.append(results_for_1)
@@ -311,20 +341,25 @@ if __name__ == '__main__':
         all_results[DATASET_NAME] = results_for_1_dataset
         
     import pickle
-    with open('with_colorjitter.pkl', "wb") as tf:
+    with open('../preds/with_colorjitter_geo.pkl', "wb") as tf:
         pickle.dump(all_results, tf)
+    
+    means = {}
+    for key in all_results.keys():
+        means[key] = all_results[key].mean(axis = 0)
+    with open('../preds/performances.txt', 'w') as f:
+        for key in all_results.keys():
+            f.writelines(key + '\n')
 
 # In[]
 
-    # read results from previous experiments
-    with open("results_for_all.pkl", "rb") as tf:
-        results_for_all = pickle.load(tf)
+import pickle
 
+with open('../preds/performances/with_colorjitter.pkl', "rb") as tf:
+    all_results = pickle.load(tf)
 
-
-
-
-
+with open('../preds/performances/with_colorjitter_geo.pkl', "rb") as tf:
+    all_results_geo = pickle.load(tf)
 
 
 

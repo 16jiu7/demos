@@ -13,8 +13,8 @@ from skimage.measure import regionprops
 
 # GLOBAL SETTINGS
 DRD = os.path.join('..', '4_retinal_datasets') # Dataset Root Dir
-DRIVE_SPLIT = (15, 5, 20) # number of training, val and test images resp.
-CHASEDB_SPLIT = (12, 2, 14)
+DRIVE_SPLIT = (18, 2, 20) # number of training, val and test images resp.
+CHASEDB_SPLIT = (18, 2, 8)
 HRF_SPLIT = (13, 2, 30)
 STARE_SPLIT = (8, 2, 10) 
 
@@ -77,7 +77,8 @@ def get_DRIVE(self, cropped):
     all_DRIVE = []
     img_names = os.listdir(os.path.join(DRD, 'DRIVE', 'images'))
     img_names = sorted(img_names, key = lambda x : x.split(os.sep)[-1].split('_')[0])
-    img_names_test, img_names_training, img_names_val = img_names[:20], img_names[20:35], img_names[35:]
+    img_names_training, img_names_val, img_names_test = \
+    img_names[:DRIVE_SPLIT[0]], img_names[DRIVE_SPLIT[0]:DRIVE_SPLIT[0] + DRIVE_SPLIT[1]], img_names[DRIVE_SPLIT[0] + DRIVE_SPLIT[1]:]
     
     for split in ['training', 'val', 'test']:
         for idx, img_name in enumerate(eval('img_names_' + split)):

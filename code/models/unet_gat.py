@@ -151,7 +151,9 @@ class UNet_3_32(nn.Module):
         self.up3 = torch.utils.checkpoint(self.up3)
         self.outc = torch.utils.checkpoint(self.outc)
         
-        
+
+
+# In[]        
         
     
 def GetCNNFeats(img, net):
