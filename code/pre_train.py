@@ -18,7 +18,7 @@ scaler = GradScaler()
 from copy import deepcopy
 from data_handeler import RetinalDataset
 from torch.utils.data import Dataset, DataLoader
-from models.unet_gat import UNet_3_32
+from models.cnn_model import UNet_3_32
 from torchmetrics.classification import BinaryAveragePrecision, BinaryAUROC, Accuracy, Precision, Recall, Specificity, F1Score
 from torchvision.transforms import ToTensor
 from albumentations.augmentations.geometric.rotate import RandomRotate90
@@ -26,6 +26,9 @@ from albumentations.augmentations.geometric.transforms import Flip, Affine
 from albumentations.augmentations.transforms import ColorJitter
 from albumentations.augmentations.geometric.resize import Resize
 import albumentations as A
+from models.LadderNetv65 import LadderNetv6
+from models.unet.unet_model import UNet
+
 totensor = ToTensor()
 
 USE_AMP = False
@@ -85,7 +88,6 @@ class StepRunner:
             weight = torch.zeros(2, dtype = torch.float)
             beta = (labels.sum() / (labels.shape[2] * labels.shape[3])).float() # beta < 0.5
             weight[0], weight[1] = beta, 1 - beta
-            print(weight)
             
         loss_fn = self.Loss_fn(weight = weight.cuda()) # instantiate
         
@@ -217,8 +219,9 @@ def get_net(net): #获得预训练模型并冻住前面层的参数
 if __name__ == '__main__':
     
     TRAIN_DATASETS = ['DRIVE', 'CHASEDB', 'HRF', 'STARE']    
-    TRAIN_DATASETS = ['CHASEDB']    
-    TRAIN_INPUT_SIZE = {'DRIVE': [584, 565], 'CHASEDB':[960, 999], 'HRF':[2336, 3504], 'STARE':[605, 700]}
+    LR = [1e-3, 1e-3, 1e-3, 1e-4]
+    TRAIN_DATASETS = ['CHASEDB', 'HRF', 'STARE']    
+    TRAIN_INPUT_SIZE = {'DRIVE': [584, 565], 'CHASEDB':[960, 999], 'HRF':[1024, 1536], 'STARE':[605, 700]}
     # INPUT_SIZE also used in test: cropped imgs are resized to INPUT_SIZE, then the prediction results
     # are upsampled and expanded to match gt
     for TRAIN_DATASET in TRAIN_DATASETS:
@@ -245,11 +248,13 @@ if __name__ == '__main__':
         train_loader = DataLoader(train_set, batch_size = 1, num_workers = 0)
         val_loader = DataLoader(val_set, batch_size = 1, num_workers = 0)
     
-    
         net = UNet_3_32(3, 2).cuda()
+        net = UNet(3, 2, channels = [8, 16, 32, 64, 128])
+        
+        net = net.cuda()
     
         loss_fn = nn.CrossEntropyLoss
-        optimizer= torch.optim.Adam(net.parameters(),lr = 1e-2, weight_decay = 5e-4)   
+        optimizer= torch.optim.Adam(net.parameters(),lr = 1e-3, weight_decay = 5e-4)   
         auroc = BinaryAUROC(thresholds=None).cuda()
         metrics_dict = {"AUROC": auroc}
         
@@ -261,7 +266,7 @@ if __name__ == '__main__':
             val_data= val_loader,
             epochs = 5000,
             ckpt_path = f'../weights/pre_training/{TRAIN_DATASET}_pre.pt',
-            patience = 1000,
+            patience = 500,
             monitor = "val_AUROC", 
             mode = "max")
 
@@ -270,10 +275,10 @@ if __name__ == '__main__':
 
     # test for pre-training
     TEST_THRESH = 0.5 # the theshold used when calculating f1, acc, precision, recall, spe
-    TEST_INPUT_SIZE = {'DRIVE': [584, 565], 'CHASEDB':[960, 999], 'HRF':[1024, 1552], 'STARE':[605, 700]}
+    TEST_INPUT_SIZE = {'DRIVE': [584, 565], 'CHASEDB':[960, 999], 'HRF':[1024, 1536], 'STARE':[605, 700]}
     #assert TEST_INPUT_SIZE == TRAIN_INPUT_SIZE
     TEST_DATASETS = ['DRIVE', 'CHASEDB', 'HRF', 'STARE']
-    TEST_DATASETS = ['CHASEDB']
+    #TEST_DATASETS = ['CHASEDB', 'HRF', 'STARE']  
     PREDS_SAVE_DIR = '../preds/pre_training/' # preds saved here
     # define metrics
     ap = BinaryAveragePrecision(thresholds=None).to('cuda')
@@ -294,8 +299,11 @@ if __name__ == '__main__':
             results.append(res)
         return results
     
-    
+
     net = UNet_3_32(3, 2).cuda()
+    net = UNet(3, 2, channels = [8, 16, 32, 64, 128])
+    
+    net = net.cuda()
     
     all_results = {}
     
@@ -360,6 +368,33 @@ with open('../preds/performances/with_colorjitter.pkl', "rb") as tf:
 
 with open('../preds/performances/with_colorjitter_geo.pkl', "rb") as tf:
     all_results_geo = pickle.load(tf)
+
+# In[]
+
+
+def patch_pred(cropped_img, stride):
+    
+    pass
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

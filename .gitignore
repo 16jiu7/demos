@@ -1,3 +1,6 @@
 refs/
 *.gitignore
 images/
+weights/
+preds/
+4_retinal_datasets/
