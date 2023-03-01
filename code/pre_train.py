@@ -248,9 +248,8 @@ if __name__ == '__main__':
         train_loader = DataLoader(train_set, batch_size = 1, num_workers = 0)
         val_loader = DataLoader(val_set, batch_size = 1, num_workers = 0)
     
-        net = UNet_3_32(3, 2).cuda()
+
         net = UNet(3, 2, channels = [8, 16, 32, 64, 128])
-        
         net = net.cuda()
     
         loss_fn = nn.CrossEntropyLoss
@@ -300,9 +299,7 @@ if __name__ == '__main__':
         return results
     
 
-    net = UNet_3_32(3, 2).cuda()
     net = UNet(3, 2, channels = [8, 16, 32, 64, 128])
-    
     net = net.cuda()
     
     all_results = {}
@@ -369,12 +366,6 @@ with open('../preds/performances/with_colorjitter.pkl', "rb") as tf:
 with open('../preds/performances/with_colorjitter_geo.pkl', "rb") as tf:
     all_results_geo = pickle.load(tf)
 
-# In[]
-
-
-def patch_pred(cropped_img, stride):
-    
-    pass
 
 
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-
+functions:
+deep CNN feature extraction
+GAT passing
+feature combination
 """
 import torch
 import torch.nn as nn
@@ -14,21 +17,13 @@ from make_graph_light import GraphedImage
 from data_handeler import RetinalDataset
 import networkx as nx
 import datetime
-from models.unet_gat import UNet_3_32
+from models.unet.unet_model import UNet
 
-DIM_ENCODER_FEATS = 256 # k
-GAT_INPUT_N_FEATS = 256
-GAT_MID_N_C = 256
-GAT_OUTPUT_N_FEATS = 256
+DIM_ENCODER_FEATS = 248 # k
+GAT_INPUT_N_FEATS = 248
+GAT_MID_N_C = 248
+GAT_OUTPUT_N_FEATS = 248
 
-
-def GetCNNFeats(img, net):
-    # only get CNN feats for GNN use
-    # feats.shape = NkHW
-    img = img.astype(np.float32)
-    img = ToTensor()(img).unsqueeze(0)
-    feats = net.get_encoder_feats(img)
-    return feats
 
 def GetNodeFeats(cnn_feats, graphedpred):
     # cnn_feats: NkHW, k = 144

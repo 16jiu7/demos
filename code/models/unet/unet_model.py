@@ -109,6 +109,29 @@ class UNet(nn.Module):
         x = self.up4(x, x1)
         logits = self.outc(x)
         return logits
+    
+    def get_concat_feats(self, x):
+        # get concated multiscale feats, without CNN pred result
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        resizer1 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
+        resizer2 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
+        resizer3 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
+        resizer4 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
+        feats = torch.cat([x1, resizer1(x2), resizer2(x3), resizer3(x4), resizer4(x5)], dim = 1)
+        return feats # shape = batch_size * sum(channels) * H * W
+    
+    def run_encoder(self, x):
+        # only get downscaled feats, without CNN pred result
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        return x5 # shape = batch_size * max(channels) * H/16 * W/16
 
     def use_checkpointing(self):
         self.inc = torch.utils.checkpoint(self.inc)
