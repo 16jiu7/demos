@@ -83,6 +83,7 @@ class UNet(nn.Module):
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
+        self.channels = channels
 
         self.inc = (DoubleConv(n_channels, channels[0]))
         self.down1 = (Down(channels[0], channels[1]))
@@ -122,7 +123,7 @@ class UNet(nn.Module):
         resizer3 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
         resizer4 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
         feats = torch.cat([x1, resizer1(x2), resizer2(x3), resizer3(x4), resizer4(x5)], dim = 1)
-        return feats # shape = batch_size * sum(channels) * H * W
+        return feats, [x1, x2, x3, x4, x5] # shape = batch_size * sum(channels) * H * W
     
     def run_encoder(self, x):
         # only get downscaled feats, without CNN pred result
@@ -131,8 +132,22 @@ class UNet(nn.Module):
         x3 = self.down2(x2)
         x4 = self.down3(x3)
         x5 = self.down4(x4)
-        return x5 # shape = batch_size * max(channels) * H/16 * W/16
+        return x5, [x1, x2, x3, x4] # shape = batch_size * max(channels) * H/16 * W/16
 
+    def run_decoder(self, feats, side_inputs):
+        # run left part of u-net, from the deepset feats to predictions
+        # feats: deepest feats, side_inputs: list containing x1 to x4
+        x1, x2, x3, x4 = side_inputs[0], side_inputs[1], side_inputs[2], side_inputs[3]
+        assert feats.shape[1] == self.channels[-1]
+        assert len(side_inputs) == len(self.channels) - 1
+        x = self.up1(feats, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+        logits = self.outc(x)
+        return logits
+
+        
     def use_checkpointing(self):
         self.inc = torch.utils.checkpoint(self.inc)
         self.down1 = torch.utils.checkpoint(self.down1)

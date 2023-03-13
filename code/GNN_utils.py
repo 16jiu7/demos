@@ -25,8 +25,8 @@ GAT_MID_N_C = 248
 GAT_OUTPUT_N_FEATS = 248
 
 
-def GetNodeFeats(cnn_feats, graphedpred):
-    # cnn_feats: NkHW, k = 144
+def GetConcatNodeFeats(cnn_feats, graphedpred):
+    # cnn_feats: NkHW
     # graphedpred: GraphedImage instance
     # order: by labels in graph.nodes
     # assume batch_size = 1

@@ -18,7 +18,6 @@ scaler = GradScaler()
 from copy import deepcopy
 from data_handeler import RetinalDataset
 from torch.utils.data import Dataset, DataLoader
-from models.cnn_model import UNet_3_32
 from torchmetrics.classification import BinaryAveragePrecision, BinaryAUROC, Accuracy, Precision, Recall, Specificity, F1Score
 from torchvision.transforms import ToTensor
 from albumentations.augmentations.geometric.rotate import RandomRotate90
@@ -64,8 +63,10 @@ class TrainDataset(Dataset):
         if self.split in ['train', 'val']:
             img, gt = self.data[idx].ori, self.data[idx].gt
             if self.transforms:
+
                 transformed = self.transforms(image = img, mask = gt)
                 img, gt = transformed['image'], transformed['mask']
+                #io.imsave(f'../images/gt_{idx}.png', gt)
             return totensor(img).cuda(), totensor(gt).cuda()
     
 
@@ -338,7 +339,7 @@ if __name__ == '__main__':
                 tmp[bbox[0]:bbox[2], bbox[1]:bbox[3]] = pred
                 refined_pred = tmp
                 io.imsave(SAVE_PATH + ID[0] + '.png', img_as_ubyte(refined_pred.cpu().numpy()))
-                
+
                 results_for_1 = test_1_pred(refined_pred, gt, test_metrics)
                 results_for_1_dataset.append(results_for_1)
             results_for_1_dataset = np.array(results_for_1_dataset)

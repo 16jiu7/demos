@@ -5,7 +5,7 @@ import enum
 class GAT(torch.nn.Module):
 
     def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, add_skip_connection=True, bias=True,
-                 dropout=0.6, log_attention_weights=False):
+                 dropout=0.6, log_attention_weights=False, get_feats = True):
         super().__init__()
         assert num_of_layers == len(num_heads_per_layer) == len(num_features_per_layer) - 1, f'Enter valid arch params.'
 
@@ -29,11 +29,16 @@ class GAT(torch.nn.Module):
         self.gat_net = nn.Sequential(
             *gat_layers,
         )
-
+        self.get_feats = get_feats
     # data is just a (in_nodes_features, topology) tuple, I had to do it like this because of the nn.Sequential:
     # https://discuss.pytorch.org/t/forward-takes-2-positional-arguments-but-3-were-given-for-nn-sqeuential-with-linear-layers/65698
     def forward(self, data):
-        return self.gat_net(data)
+        if self.get_feats:
+            encoder, classifer = self.gat_net[:-1], self.gat_net[-1]
+            feats = encoder(data)
+            return feats, classifer(feats)
+        else:
+            return self.gat_net(data)
 
 
 class GATLayer(torch.nn.Module):
