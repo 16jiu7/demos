@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from models.GAT import GAT
 
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
@@ -113,17 +114,18 @@ class UNet(nn.Module):
     
     def get_concat_feats(self, x):
         # get concated multiscale feats, without CNN pred result
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        resizer1 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
-        resizer2 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
-        resizer3 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
-        resizer4 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
-        feats = torch.cat([x1, resizer1(x2), resizer2(x3), resizer3(x4), resizer4(x5)], dim = 1)
-        return feats, [x1, x2, x3, x4, x5] # shape = batch_size * sum(channels) * H * W
+        with torch.no_grad():
+            x1 = self.inc(x)
+            x2 = self.down1(x1)
+            x3 = self.down2(x2)
+            x4 = self.down3(x3)
+            x5 = self.down4(x4)
+            resizer1 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
+            resizer2 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
+            resizer3 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
+            resizer4 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
+            feats = torch.cat([x1, resizer1(x2), resizer2(x3), resizer3(x4), resizer4(x5)], dim = 1)
+            return feats, [x1, x2, x3, x4, x5] # shape = batch_size * sum(channels) * H * W
     
     def run_encoder(self, x):
         # only get downscaled feats, without CNN pred result
@@ -133,6 +135,9 @@ class UNet(nn.Module):
         x4 = self.down3(x3)
         x5 = self.down4(x4)
         return x5, [x1, x2, x3, x4] # shape = batch_size * max(channels) * H/16 * W/16
+
+    def run_gnn_for_bottom():
+        pass
 
     def run_decoder(self, feats, side_inputs):
         # run left part of u-net, from the deepset feats to predictions

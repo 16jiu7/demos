@@ -181,7 +181,7 @@ def train_model(net, optimizer, loss_fn, metrics_dict,
 
         # 2，validate -------------------------------------------------
         if val_data:
-            val_step_runner = StepRunner(net = net,stage="val",
+            val_step_runner = StepRunner(net = net, stage="val",
                 Loss_fn = loss_fn,metrics_dict=deepcopy(metrics_dict))
             val_epoch_runner = EpochRunner(val_step_runner)
             with torch.no_grad():
@@ -221,7 +221,7 @@ if __name__ == '__main__':
     
     TRAIN_DATASETS = ['DRIVE', 'CHASEDB', 'HRF', 'STARE']    
     LR = [1e-3, 1e-3, 1e-3, 1e-4]
-    TRAIN_DATASETS = ['CHASEDB', 'HRF', 'STARE']    
+    TRAIN_DATASETS = ['CHASEDB']    
     TRAIN_INPUT_SIZE = {'DRIVE': [584, 565], 'CHASEDB':[960, 999], 'HRF':[1024, 1536], 'STARE':[605, 700]}
     # INPUT_SIZE also used in test: cropped imgs are resized to INPUT_SIZE, then the prediction results
     # are upsampled and expanded to match gt
