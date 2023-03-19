@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import torchvision
 from torchvision.transforms import ToTensor
 totensor = ToTensor()
 from torch.utils.data import Dataset, DataLoader
@@ -32,6 +33,8 @@ import pickle
 from torch.nn.functional import softmax
 import tqdm, sys 
 from utils import printlog, StepRunner, EpochRunner, train_model
+from torchmetrics.classification import BinaryAveragePrecision, BinaryAUROC, Accuracy, Precision, Recall, Specificity, F1Score
+from torchmetrics import MeanSquaredError
 
 CNN_NAME = 'UNet_small_4_8' # 4 times of downscaling, the first conv layer has 8 channels 
 TRAIN_DATASET = 'CHASEDB'
@@ -108,9 +111,25 @@ print(f'pred, slic_label and graph for {TRAIN_DATASET} prepared !')
 # In[]
 # transform: apply to ori + slic_label + node center points all at once for data aug 
 brightness, contrast, saturation, hue = 0.25, 0.25, 0.25, 0.01
-train_transforms = A.Compose([RandomRotate90(p = 0.5), Flip(p = 0.5)])
+train_transforms = A.Compose([RandomRotate90(p = 0), Flip(p = 0)])
 color_jitter = ColorJitter(brightness, contrast, saturation, hue, always_apply = True)
 val_transforms = A.Compose([RandomRotate90(p = 0)]) # no transform for val set 
+
+class RoiHead(nn.Module):
+    # assert bs = 1
+    def __init__(self, in_dim, mid_dim, out_dim, pooled_size = 7):
+        super().__init__(self)
+        self.in_dim = in_dim
+        self.mid_dim = mid_dim
+        self.out_dim = out_dim
+        self.roi_pooler = torchvision.ops.roi_pool(output_size = pooled_size, spatial_scale = 1)
+        self.fc1 = nn.Linear(self.in_dim, self.mid_dim)
+        self.fc2 = nn.Linear(self.mid_dim, self.out_dim)
+        
+    def forward(self, input_feats, boxes):
+        # input_feats: 1CHW, boxes: K5
+        pooled_boxes = self.roi_pooler(input_feats, boxes).view(boxes.shape[-1], input_feats, -1) # K,C,pooled_size^2
+        
 
 def TransformGraph(graph, slic_label):
     # do transforms for graphs, may remove some of the nodes
@@ -154,7 +173,7 @@ class TrainDataset(Dataset):
         if self.split == 'train':
             img = self.color_jitter(image = img)['image']  
         data.ori, data.gt = img, gt    
-        graph = TransformGraph(graph, slic_label)
+        #graph = TransformGraph(graph, slic_label)
         return data, slic_label, graph
 
 def my_collate_fn(batch):
@@ -165,8 +184,6 @@ val_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'val', transforms =
     
 train_loader = DataLoader(train_set, batch_size = 1, num_workers = 0, shuffle = False, collate_fn = my_collate_fn)
 val_loader = DataLoader(val_set, batch_size = 1, num_workers = 0, shuffle = False, collate_fn = my_collate_fn)
-
-# In[]
 
 
 def GetConcatCNNFeats(cnn_model, single_data, device = 'cuda' if torch.cuda.is_available() else 'cpu'):
@@ -202,7 +219,8 @@ def GetRelabeledGraphEdges(graph, device = 'cuda' if torch.cuda.is_available() e
     new_labels = [i for i in range(len(old_labels))] # new node labels start from 0, due to GAT need
     for i, old_label in enumerate(old_labels): mapping[old_label] = new_labels[i]
     relabeled_graph = nx.relabel_nodes(graph, mapping)
-    edges = list(relabeled_graph.edges)
+    relabeled_Digraph = nx.DiGraph(relabeled_graph) # GAT needs edges of both directions
+    edges = list(relabeled_Digraph.edges)
     edges = torch.Tensor(edges).long().transpose(1,0) # shape = (2, E), data type = torch.long for GAT use
     return edges.to(device)   
     
@@ -215,8 +233,7 @@ def FuseNodeCenterFeats(graph, feats_to_replace, node_feats, ori_size):
     h_ratio, w_ratio = h/H, w/W
     for idx, node in enumerate(graph.nodes):
         pos = (int(graph.nodes[node]['center'][0] * h_ratio), int(graph.nodes[node]['center'][1] * w_ratio))
-        #feats_to_replace[:, :, pos[0], pos[1]] = node_feats[idx, :]
-        feats_to_replace[:, :, pos[0], pos[1]] += node_feats[idx, :]
+        feats_to_replace[:, :, pos[0], pos[1]] = node_feats[idx, :]
     return feats_to_replace
 
 def MakeNodesGT(graph, single_data, device = 'cuda' if torch.cuda.is_available() else 'cpu'):
@@ -231,6 +248,18 @@ def MakeNodesGT(graph, single_data, device = 'cuda' if torch.cuda.is_available()
     nodes_gt = torch.Tensor(nodes_gt).float()    
     return nodes_gt.to(device)    
       
+def MakeAllNodesGT(single_data, slic_label, device = 'cuda' if torch.cuda.is_available() else 'cpu'):
+    # make GT for all slic pieces 
+    nodes_gt = []
+    gt = np.float32(single_data.gt / 255.)
+    props = regionprops(label_image = slic_label, intensity_image = gt)
+    for prop in props: 
+        mass = np.sum(prop.image)
+        area = prop.area_bbox
+        nodes_gt.append(mass / area) 
+    nodes_gt = torch.Tensor(nodes_gt).float()    
+    return nodes_gt.to(device) 
+
 def RunForwardPass(cnn, gnn, single_data, slic_label, graph, device = 'cuda' if torch.cuda.is_available() else 'cpu'):
     # run CNN encoder
     concat_cnn_feats, side_outs = GetConcatCNNFeats(cnn, single_data)
@@ -249,20 +278,10 @@ def RunForwardPass(cnn, gnn, single_data, slic_label, graph, device = 'cuda' if 
     
     return final_logits, node_density_logits # final logits and gnn predictions for node vessel density
     
-if __name__ == '__main__':
+def TrainEpoch(train_loader, cnn, gnn, cnn_criterion, gnn_criterion, loss_ratio,
+               cnn_optimizer, gnn_optimizer):
     
-    
-    
-    
-    setup_random_seed(2023)
-    sigmoid = torch.nn.functional.sigmoid
-    gnn_criterion = torch.nn.MSELoss()
-    cnn_criterion = torch.nn.CrossEntropyLoss()
-    all_parameters = itertools.chain(cnn.parameters(), gnn.parameters())
-    cnn_optimizer= torch.optim.Adam(cnn.parameters(), lr = 1e-3, weight_decay = 5e-4)   
-    gnn_optimizer= torch.optim.Adam(gnn.parameters(), lr = 1e-3, weight_decay = 5e-4) 
-    
-    
+    cnn.train(), gnn.train()
     
     for single_data, slic_label, graph in train_loader:
         final_logits, node_density_logits = RunForwardPass(cnn, gnn, single_data, slic_label, graph)
@@ -270,39 +289,45 @@ if __name__ == '__main__':
         gt = totensor(single_data.gt).to('cuda').long()
         gnn_loss = gnn_criterion(sigmoid(node_density_logits).squeeze(1), nodes_gt)
         cnn_loss = cnn_criterion(final_logits, gt)
-        tot_loss = cnn_loss + gnn_loss
-        print('gnn loss: ', gnn_loss)
-        print('cnn loss: ', cnn_loss)
-        
-        tot_loss.backward()
-            
-           
-            # cnn_optimizer.step()
-            # cnn_optimizer.zero_grad()
-        
-        # with torch.autograd.set_detect_anomaly(True):
-        #     gnn_loss.backward()
-        #     gnn_optimizer.step()
-        #     gnn_optimizer.zero_grad()
-        
-    # print('train loader fin \n')    
-    # for single_data, slic_label, graph in val_loader:
-    #     final_logits, node_density_logits = RunForwardPass(cnn, gnn, single_data, slic_label, graph)
-    #     print(final_logits.shape[2:], node_density_logits.shape)
-    #     nodes_gt = MakeNodesGT(graph, single_data)
-    #     print(nodes_gt.shape)
-    #     print('\n')    
+        print(f'cnn_loss: {cnn_loss.item():.4f}, gnn_loss: {gnn_loss.item():.4f}')
+        #tot_loss = cnn_loss + loss_ratio * gnn_loss
+        #tot_loss.backward()
+        #cnn_optimizer.step()
+        gnn_optimizer.step()
+        #cnn_optimizer.zero_grad()
+        gnn_optimizer.zero_grad()
+
+def ValEpoch(val_loader, cnn, gnn, cnn_val_criterion, gnn_val_criterion, save_dir = None):
+    cnn.eval(), gnn.eval()
+    i = 0
+    with torch.no_grad():
+        for single_data, slic_label, graph in val_loader:
+            i += 1
+            final_logits, node_density_logits = RunForwardPass(cnn, gnn, single_data, slic_label, graph)
+            nodes_gt = MakeNodesGT(graph, single_data)
+            gt = totensor(single_data.gt).to('cuda').long()
+            final_pred = softmax(final_logits, dim = 1)[:,1,:,:]
+            io.imsave(f'final_pred_{i}.png', final_pred[0,...].detach().cpu().numpy())
+            cnn_error = cnn_val_criterion(final_pred, gt)
+            gnn_error = gnn_val_criterion(sigmoid(node_density_logits).squeeze(1), nodes_gt)
+            print(f'AP: {cnn_error:.4f}, node MSE: {gnn_error:.4f}')
 
 
-
-
-# In[]
-
-
-
-a = gnn.parameters()
-for x in a:
-    print(x.shape)
+if __name__ == '__main__':
+    N_EPOCH = 150
+    setup_random_seed(2023)
+    sigmoid = torch.sigmoid
+    gnn_criterion = torch.nn.MSELoss(reduction = 'mean')
+    cnn_criterion = torch.nn.CrossEntropyLoss(reduction = 'mean')
+    cnn_val_criterion = BinaryAveragePrecision().to('cuda')
+    gnn_val_criterion = MeanSquaredError().to('cuda')
+    cnn_optimizer= torch.optim.Adam(cnn.parameters(), lr = 1e-3, weight_decay = 0)   
+    gnn_optimizer= torch.optim.Adam(gnn.parameters(), lr = 1e-3, weight_decay = 0) 
+    
+    for epoch in range(N_EPOCH):
+        print(f"<<<<<< epoch {epoch + 1} >>>>>>")
+        TrainEpoch(train_loader, cnn, gnn, cnn_criterion, gnn_criterion, 0.1, cnn_optimizer, gnn_optimizer)
+        ValEpoch(val_loader, cnn, gnn, cnn_val_criterion, gnn_val_criterion)
 
 
 
