@@ -114,21 +114,6 @@ brightness, contrast, saturation, hue = 0.25, 0.25, 0.25, 0.01
 train_transforms = A.Compose([RandomRotate90(p = 0), Flip(p = 0)])
 color_jitter = ColorJitter(brightness, contrast, saturation, hue, always_apply = True)
 val_transforms = A.Compose([RandomRotate90(p = 0)]) # no transform for val set 
-
-class RoiHead(nn.Module):
-    # assert bs = 1
-    def __init__(self, in_dim, mid_dim, out_dim, pooled_size = 7):
-        super().__init__(self)
-        self.in_dim = in_dim
-        self.mid_dim = mid_dim
-        self.out_dim = out_dim
-        self.roi_pooler = torchvision.ops.roi_pool(output_size = pooled_size, spatial_scale = 1)
-        self.fc1 = nn.Linear(self.in_dim, self.mid_dim)
-        self.fc2 = nn.Linear(self.mid_dim, self.out_dim)
-        
-    def forward(self, input_feats, boxes):
-        # input_feats: 1CHW, boxes: K5
-        pooled_boxes = self.roi_pooler(input_feats, boxes).view(boxes.shape[-1], input_feats, -1) # K,C,pooled_size^2
         
 
 def TransformGraph(graph, slic_label):
@@ -192,26 +177,50 @@ def GetConcatCNNFeats(cnn_model, single_data, device = 'cuda' if torch.cuda.is_a
     cnn_model.to(device)
     concat_feats, side_outs = cnn_model.get_concat_feats(ori)
     return concat_feats, side_outs
-    
-def GetConcatNodeFeats(cnn_feats, graph, slic_label):
-    # type : (Tensor, graph, array) -> Tensor
-    # cnn_feats: NkHW
-    # graphedpred: GraphedImage instance
-    # order: by labels in graph.nodes
-    # assume batch_size = 1
-    nodes = list(graph.nodes)
-    node_feats = torch.zeros(size = [len(nodes), cnn_feats.shape[1]], dtype = torch.float32) # N_nodes, k
-    r_props = regionprops(slic_label)
-    
-    for i, node in enumerate(nodes):
-        feat_slices = [slice(None), slice(None), r_props[node - 1].slice[0], r_props[node - 1].slice[1]]
-        node_feats_i = cnn_feats[feat_slices] # all feats within bbox, shape = N,k,H_bbox,W_bbox
-        node_feats_i = node_feats_i.reshape(node_feats_i.shape[1], -1) # k,H_bbox*W_bbox
-        _, _, V = torch.pca_lowrank(node_feats_i, center = True)
-        node_feat_i = torch.matmul(node_feats_i, V[:, :1]) # k,1
-        node_feats[i, :] = node_feat_i[:, 0]
+
+class RoiHead(nn.Module):
+    # assert bs = 1
+    def __init__(self, in_dim, mid_dim, out_dim, pooled_size = 7):
+        super().__init__()
+        self.in_dim = in_dim
+        self.mid_dim = mid_dim
+        self.out_dim = out_dim
+        self.roi_pooler = torchvision.ops.RoIPool(output_size = pooled_size, spatial_scale = 1)
+        self.fc1 = nn.Linear(self.in_dim, self.mid_dim)
+        self.fc2 = nn.Linear(self.mid_dim, self.out_dim)
         
+    def forward(self, input_feats, boxes):
+        # input_feats: 1CHW, boxes: K5
+        pooled_boxes = self.roi_pooler(input_feats, boxes).view(boxes.shape[0], -1) # K,C*pooled_size^2
+        out_feats = self.fc1(pooled_boxes)
+        out_feats = self.fc2(out_feats)
+        
+        return out_feats
+
+def GetConcatNodeFeats(cnn_feats, roi_head, slic_label, device = 'cuda' if torch.cuda.is_available() else 'cpu'):
+    r_props = regionprops(slic_label)
+    boxes = torch.zeros(size = [len(r_props), 5], dtype = torch.float)
+    
+    for idx, prop in enumerate(r_props):
+        box = torch.Tensor([0] + list(prop.bbox)).float()
+        boxes[idx] = box    
+    cnn_feats = cnn_feats.to(device)
+    roi_head.to(device)
+    boxes = boxes.to(device)
+    node_feats = roi_head(cnn_feats, boxes)
     return node_feats
+
+# In[]
+slic_label = np.load(INTERMEDIATE_DIR + 'slic/01L.npy')
+cnn_feats = torch.rand([1, 256, 920, 918])
+roi_head = RoiHead(256 * 7 * 7, 256, 256).to('cuda')
+node_feats = GetConcatNodeFeats(cnn_feats, roi_head, slic_label)
+
+
+
+
+
+# In[]
 
 def GetRelabeledGraphEdges(graph, device = 'cuda' if torch.cuda.is_available() else 'cpu'):
     mapping = {}
