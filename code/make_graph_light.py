@@ -93,7 +93,8 @@ def add_nodes(self) -> None:
     self.certain_nodes, self.uncertain_nodes = certain_nodes, uncertain_nodes
 
 def add_edges(self, narrow, N_link, src_list, valid_tar_list) -> None:
-    
+    assert narrow < 256, 'param narrow is too large'
+    # only from some scr nodes to some other nodes
     def get_neighbors(src, narrow, valid_tars) -> list:
         select_mask = np.zeros_like(self.certain_pred).astype(bool)
         [rr, cc] = draw.disk(center = self.graph.nodes[src]['center'], radius = narrow, shape = self.pred.shape) 
@@ -107,12 +108,12 @@ def add_edges(self, narrow, N_link, src_list, valid_tar_list) -> None:
         return neighbors, actual_N_link
 
     def get_topk_dist_eu(src, tars, k):
-        X = np.array([self.graph.nodes[tar]['center'][1] for tar in tars], dtype = np.uint32)
-        Y = np.array([self.graph.nodes[tar]['center'][0] for tar in tars], dtype = np.uint32)
+        X = np.array([self.graph.nodes[tar]['center'][1] for tar in tars], dtype = np.uint16)
+        Y = np.array([self.graph.nodes[tar]['center'][0] for tar in tars], dtype = np.uint16)
         x, y = self.graph.nodes[src]['center'][1], self.graph.nodes[src]['center'][0]
         DST = (X - x) ** 2 + (Y - y) ** 2
         rank = np.argsort(DST)
-        tars = np.array(tars, dtype = np.uint32)
+        tars = np.array(tars, dtype = np.uint16)
         topk_tars = tars[rank[:k]]
         return list(topk_tars)
         
@@ -215,7 +216,8 @@ def visualize_graph(self, show_graph=True, save_graph=True, save_name = 'graph.p
     
     
 # In[]
-# from data_handeler import RetinalDataset
+from data_handeler import RetinalDataset
+import datetime
 # from os import listdir
 
 # pred_dir = '/home/jiu7/Downloads/LadderNet-master/STARE_results/'
@@ -235,11 +237,97 @@ def visualize_graph(self, show_graph=True, save_graph=True, save_name = 'graph.p
     
 #     graphedpred.visualize_graph(graphedpred, save_name = f'{data.ID}_graph.png') 
 
+
+# def add_edges(graph, narrow, n_link, intergrate_narrow = 100) -> None:
+#     assert narrow < 256, 'param narrow is too large'
+    
+#     nodes_data = [(node, graph.nodes[node]['center'][0], graph.nodes[node]['center'][1]) for node in graph.nodes]
+
+#     for src in nodes_data:
+#         # find neighbors for src
+
+#         neighbors = list(filter(lambda x: (abs(x[1] - src[1]) < narrow) and \
+#                            (abs(x[2] - src[2]) < narrow and x[0] != src[0]), nodes_data))
+#         actual_n_link = min(len(neighbors), n_link)
+#         # get n_link nearest nodes from neighbors
+#         X = np.array([neighbor[1] for neighbor in neighbors], dtype = np.uint16)
+#         Y = np.array([neighbor[2] for neighbor in neighbors], dtype = np.uint16)
+#         x, y = src[1], src[2]
+#         DST = (X - x) ** 2 + (Y - y) ** 2
+#         rank = np.argsort(DST)
+#         neighbor_idxs = [neighbor[0] for neighbor in neighbors]
+#         topk_neighbor_idxs = [neighbor_idxs[i] for i in rank[:actual_n_link]]
+#         edges = [(src[0], topk_neighbor_idx) for topk_neighbor_idx in topk_neighbor_idxs] 
+#         graph.add_edges_from(edges)
+#     # connect all components, from smaller parts to the largest component
+#         N_components = nx.number_connected_components(graph)
+#         componets = nx.connected_components(graph)
+#         child_componets = sorted(componets, key = len)[:N_components - 1]
+#         #TODO
+#     return graph
     
     
+# def make_graph(pred, mask, n_pieces, neg_ratio, narrow, n_link):
+#     # pred -> certain & uncertain pred
+#     threshold = threshold_otsu(pred)
+#     certain_pred = pred > threshold
+#     uncertain_pred = np.clip(pred - 255*certain_pred, a_min = 0, a_max = None).astype(np.uint8)
+#     # run slic on certain_pred
+#     slic_label = slic(np.stack([certain_pred]*3, axis = -1), n_pieces, mask = mask)
+#     # remove small prediction values, to control edge numbers
+#     neg_val = int(uncertain_pred.max() * neg_ratio)
+#     uncertain_pred = np.where(uncertain_pred < neg_val, 0, uncertain_pred)
+#     # 2 graphs, will merge at the end
+#     empties = nx.Graph()
+#     fulls = nx.Graph()
+#     # add nodes, node attrs: idx, label, bbox, center
+#     props = regionprops(slic_label, uncertain_pred + certain_pred)
+#     for idx, prop in enumerate(props):
+#         if prop.intensity_mean == 0:
+#             empties.add_node(idx, label = prop.label, bbox = prop.bbox, center = (int(prop.centroid[0]), int(prop.centroid[1])))
+#         else:    
+#             fulls.add_node(idx, label = prop.label, bbox = prop.bbox, center = (int(prop.centroid[0]), int(prop.centroid[1])))
+#     # add edges, for fulls only
+#     fulls = add_edges(fulls, narrow, n_link)
+#     fulls.add_nodes_from(empties.nodes(data = True))
     
+#     return nx.DiGraph(fulls)
     
+# def visualize_graph(background, graph, show_graph=True, save_graph=True, save_name = 'tmp_graph.png') -> None:
+#     im = background
+#     plt.figure(figsize=(7, 6.05))
+#     bg = im.astype(int)*255 if im.dtype == np.float32 else im
     
+#     if len(bg.shape)==2:
+#         plt.imshow(bg, cmap='gray', vmin=0, vmax=255)
+#     elif len(bg.shape)==3:
+#         plt.imshow(bg)
+#     plt.imshow(bg, cmap='gray', vmin=0, vmax=255)
+#     plt.axis((0,700,605,0))
+#     pos = {}
+    
+#     # define node positions
+#     for i in graph.nodes:
+#         #print(graph.nodes[i])
+#         pos[i] = (graph.nodes[i]['center'][1], graph.nodes[i]['center'][0])
+    
+#     nx.draw_networkx(graph, pos, node_color = 'green', arrowsize = 2, edge_color='red', width=0.5, node_size=5, alpha=0.5, with_labels = False)
+
+#     if save_name is not None:
+#         plt.savefig(save_name, bbox_inches='tight', pad_inches=0, dpi = 400)
+#     if show_graph:
+#         plt.show()
+    
+#     plt.cla()
+#     plt.clf()
+#     plt.close()      
+    
+# drive = RetinalDataset('STARE', cropped = False).all_data[0]
+# starttime = datetime.datetime.now()
+# graph = make_graph(drive.pred, drive.fov_mask, 2000, 0.5, 100, 4)    
+# endtime = datetime.datetime.now()
+# print(f'Run time : {endtime - starttime}s')
+# visualize_graph(drive.pred, graph)
     
     
     

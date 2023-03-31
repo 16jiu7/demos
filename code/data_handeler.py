@@ -20,28 +20,26 @@ STARE_SPLIT = (8, 2, 10)
 
 class single_data():
     # class to store everything about a single data "point"
-    def __init__(self, ID, ori, fov_mask, gt, split, cropped):
+    def __init__(self, ID, ori, fov_mask, gt, split):
         self.ID = ID
         self.ori = ori
         self.fov_mask = fov_mask if fov_mask.ndim == 2 else fov_mask[:, :, 0] # note that hrf's fov mask has ndim 3
         self.gt = gt
         assert split in ['training', 'val','test']
         self.split = split
-        self.cropped = cropped # crop to fov if True
         self.shape = self.fov_mask.shape # shape by H, W
         self.bbox = None # added by crop2fov function 
         self.pred = None
-        self.cropped_ori, self.cropped_gt, self.cropped_fov_mask = self.crop2fov()
-        if self.cropped:
-            self.ori, self.gt, self.fov_mask = self.cropped_ori, self.cropped_gt, self.cropped_fov_mask
-            
+
     def crop2fov(self):
+        assert self.pred is not None
         bbox = regionprops(label_image = self.fov_mask)[0].bbox
         assert len(bbox) == 4, 'error: fov_mask.ndim > 2'
         self.bbox = bbox
-        return self.ori[bbox[0]:bbox[2], bbox[1]:bbox[3], :], \
-               self.gt[bbox[0]:bbox[2], bbox[1]:bbox[3]],\
-               self.fov_mask[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+        self.ori = self.ori[bbox[0]:bbox[2], bbox[1]:bbox[3], :]
+        self.gt = self.gt[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+        self.fov_mask = self.fov_mask[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+        self.pred = self.pred[bbox[0]:bbox[2], bbox[1]:bbox[3]]
 
 class RetinalDataset():
     # class whos instance is a retinal dataset like DRIVE = RetinalDataset(...)
@@ -53,7 +51,6 @@ class RetinalDataset():
         self.all_training, self.all_val, self.all_test = self.split_data()
         self.visualize('../images/') if visualize else None
         
-             
     def get_data(self):
         data_list = eval('get_' + self.name + f'(self, {self.cropped})')
         
@@ -87,8 +84,9 @@ def get_DRIVE(self, cropped):
             fov_mask = io.imread(os.path.join(DRD, 'DRIVE', 'masks', f'{ID}_mask.gif'))
             gt = io.imread(os.path.join(DRD, 'DRIVE', 'manual', f'{ID}_manual1.gif'))
             pred = io.imread(os.path.join(DRD, 'DRIVE', 'preds', f'{ID}.png'))
-            drive_instance = single_data(ID, ori, fov_mask, gt, split, cropped)
+            drive_instance = single_data(ID, ori, fov_mask, gt, split)
             drive_instance.pred = pred
+            if cropped : drive_instance.crop2fov()
             all_DRIVE.append(drive_instance)
             
     return all_DRIVE    
@@ -106,8 +104,9 @@ def get_CHASEDB(self, cropped):
             fov_mask = io.imread(os.path.join(DRD, 'CHASEDB', 'masks', f'Image_{ID}.gif'))
             gt = io.imread(os.path.join(DRD, 'CHASEDB', 'manual', f'Image_{ID}_1stHO.png'))
             pred = io.imread(os.path.join(DRD, 'CHASEDB', 'preds', f'{ID}.png'))
-            chasedb_instance = single_data(ID, ori, fov_mask, gt, split, cropped)
+            chasedb_instance = single_data(ID, ori, fov_mask, gt, split)
             chasedb_instance.pred = pred
+            if cropped : chasedb_instance.crop2fov()
             all_CHASEDB.append(chasedb_instance)
         
     return all_CHASEDB      
@@ -127,8 +126,9 @@ def get_HRF(self, cropped):
             fov_mask = io.imread(os.path.join(DRD, 'HRF', 'masks', f'{ID}.png'))
             gt = io.imread(os.path.join(DRD, 'HRF', 'manual1', f'{ID}.png'))
             pred = io.imread(os.path.join(DRD, 'HRF', 'preds', f'{ID}.png'))
-            HRF_instance = single_data(ID, ori, fov_mask, gt, split, cropped)
+            HRF_instance = single_data(ID, ori, fov_mask, gt, split)
             HRF_instance.pred = pred
+            if cropped : HRF_instance.crop2fov()
             all_HRF.append(HRF_instance) 
         
     return all_HRF  
@@ -145,8 +145,9 @@ def get_STARE(self, cropped):
             fov_mask = io.imread(os.path.join(DRD, 'STARE', 'masks', f'{ID}.gif'))
             gt = io.imread(os.path.join(DRD, 'STARE', 'labels-ah', f'{ID}.ah.pgm'))
             pred = io.imread(os.path.join(DRD, 'STARE', 'preds', f'{ID}.png'))
-            stare_instance = single_data(ID, ori, fov_mask, gt, split, cropped)
+            stare_instance = single_data(ID, ori, fov_mask, gt, split)
             stare_instance.pred = pred
+            if cropped : stare_instance.crop2fov()
             all_STARE.append(stare_instance)
         
     return all_STARE         

@@ -1,8 +1,10 @@
-import torch
-import torch.nn as nn
-import enum
-from torch.autograd import Variable
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Mar 30 21:35:37 2023
 
+@author: jiu7
+"""
 import torch.nn as nn
 import torch
 
@@ -310,25 +312,23 @@ class GATLayer(torch.nn.Module):
         if self.bias is not None:
             out_nodes_features += self.bias
 
-        return out_nodes_features if self.activation is None else self.activation(out_nodes_features)   
-
+        return out_nodes_features if self.activation is None else self.activation(out_nodes_features)    
+    
 # In[]
-# import networkx as nx
-# from torch.autograd import Variable
-# gnn = GAT(3, [1,1,1], [64, 64, 64, 1])
+import networkx as nx
+from torch.autograd import Variable
+gnn = GAT(3, [1,1,1], [64, 64, 64, 1], add_skip_connection = True)
 
-# graph = nx.path_graph(100)
-# node_feats = torch.randn(100, 64) # (N. Fin)
-# edges = torch.Tensor([edge for edge in graph.edges]).long().view(2, -1) # (2, E)
-# node_feats = Variable(node_feats, requires_grad = True)
-# gnn_inputs = (node_feats, edges)
-# gnn_logits = gnn(gnn_inputs, True)[1][0]
-# print('node logits shape: ', gnn_logits.shape)
-# print(gnn_logits.sum())
-# gnn_logits.sum().backward()
-# print('gnn mean grad: ' ,node_feats.grad.mean())
-
-
+graph = nx.path_graph(100)
+node_feats = torch.randn(100, 64) # (N. Fin)
+edges = torch.Tensor([edge for edge in graph.edges]).long().view(2, -1) # (2, E)
+node_feats = Variable(node_feats, requires_grad = True)
+gnn_inputs = (node_feats, edges)
+gnn_logits = gnn(gnn_inputs, True)[1][0]
+print('node logits shape: ', gnn_logits.shape)
+print(gnn_logits.sum())
+gnn_logits.sum().backward()
+print('gnn mean grad: ' ,node_feats.grad.mean())
 
 
 
@@ -340,3 +340,13 @@ class GATLayer(torch.nn.Module):
 
 
 
+
+
+
+
+
+
+
+
+
+    

@@ -21,7 +21,7 @@ class StepRunner:
                  stage = "train", metrics_dict = None, 
                  optimizer = None
                  ):
-        self.net,self.Loss_fn,self.metrics_dict,self.stage = net,Loss_fn,metrics_dict,stage
+        self.net,self.Loss_fn,self.metrics_dict,self.stage = net, Loss_fn, metrics_dict, stage
         self.optimizer = optimizer
             
     def step(self, features, labels):

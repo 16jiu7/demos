@@ -1,0 +1,498 @@
+AP: 0.8601, node MSE: 0.1823
+<<<<<< epoch 80 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8842, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.527413010597229
+AP: 0.8598, node MSE: 0.1823
+<<<<<< epoch 81 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8841, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8594, node MSE: 0.1823
+<<<<<< epoch 82 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8838, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8595, node MSE: 0.1823
+<<<<<< epoch 83 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8837, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8597, node MSE: 0.1823
+<<<<<< epoch 84 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8836, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8592, node MSE: 0.1823
+<<<<<< epoch 85 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8833, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8587, node MSE: 0.1823
+<<<<<< epoch 86 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8828, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8584, node MSE: 0.1823
+<<<<<< epoch 87 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8825, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8588, node MSE: 0.1823
+<<<<<< epoch 88 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8824, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274128913879395
+AP: 0.8594, node MSE: 0.1823
+<<<<<< epoch 89 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8822, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8585, node MSE: 0.1823
+<<<<<< epoch 90 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8816, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8576, node MSE: 0.1823
+<<<<<< epoch 91 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8819, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8586, node MSE: 0.1823
+<<<<<< epoch 92 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8815, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8589, node MSE: 0.1823
+<<<<<< epoch 93 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8812, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274128913879395
+AP: 0.8582, node MSE: 0.1823
+<<<<<< epoch 94 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8806, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8576, node MSE: 0.1823
+<<<<<< epoch 95 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8803, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8578, node MSE: 0.1823
+<<<<<< epoch 96 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8801, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8581, node MSE: 0.1823
+<<<<<< epoch 97 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8800, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8581, node MSE: 0.1823
+<<<<<< epoch 98 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8802, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8579, node MSE: 0.1823
+<<<<<< epoch 99 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8802, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8580, node MSE: 0.1823
+<<<<<< epoch 100 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8801, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274128913879395
+AP: 0.8583, node MSE: 0.1823
+<<<<<< epoch 101 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258908271789551
+AP: 0.8806, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8594, node MSE: 0.1823
+<<<<<< epoch 102 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258908271789551
+AP: 0.8814, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8597, node MSE: 0.1823
+<<<<<< epoch 103 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8818, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8595, node MSE: 0.1823
+<<<<<< epoch 104 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8817, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8580, node MSE: 0.1823
+<<<<<< epoch 105 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8818, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8607, node MSE: 0.1823
+<<<<<< epoch 106 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258908271789551
+AP: 0.8793, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8587, node MSE: 0.1823
+<<<<<< epoch 107 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8781, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8588, node MSE: 0.1823
+<<<<<< epoch 108 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8775, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274128913879395
+AP: 0.8592, node MSE: 0.1823
+<<<<<< epoch 109 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8778, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8594, node MSE: 0.1823
+<<<<<< epoch 110 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8781, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8595, node MSE: 0.1823
+<<<<<< epoch 111 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8783, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8593, node MSE: 0.1823
+<<<<<< epoch 112 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8782, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8594, node MSE: 0.1823
+<<<<<< epoch 113 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258908271789551
+AP: 0.8780, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8592, node MSE: 0.1823
+<<<<<< epoch 114 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8772, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8589, node MSE: 0.1823
+<<<<<< epoch 115 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8760, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8579, node MSE: 0.1823
+<<<<<< epoch 116 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8745, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8566, node MSE: 0.1823
+<<<<<< epoch 117 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8732, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8555, node MSE: 0.1823
+<<<<<< epoch 118 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8733, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8553, node MSE: 0.1823
+<<<<<< epoch 119 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907079696655
+AP: 0.8753, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8561, node MSE: 0.1823
+<<<<<< epoch 120 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8770, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8571, node MSE: 0.1823
+<<<<<< epoch 121 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8780, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8575, node MSE: 0.1823
+<<<<<< epoch 122 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8781, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274128913879395
+AP: 0.8582, node MSE: 0.1823
+<<<<<< epoch 123 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907079696655
+AP: 0.8770, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8574, node MSE: 0.1823
+<<<<<< epoch 124 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8765, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8569, node MSE: 0.1823
+<<<<<< epoch 125 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258908271789551
+AP: 0.8768, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8577, node MSE: 0.1823
+<<<<<< epoch 126 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258908867835999
+AP: 0.8777, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8578, node MSE: 0.1823
+<<<<<< epoch 127 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258908867835999
+AP: 0.8792, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8584, node MSE: 0.1823
+<<<<<< epoch 128 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8796, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8582, node MSE: 0.1823
+<<<<<< epoch 129 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8793, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8578, node MSE: 0.1823
+<<<<<< epoch 130 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907079696655
+AP: 0.8789, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8574, node MSE: 0.1823
+<<<<<< epoch 131 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8782, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8571, node MSE: 0.1823
+<<<<<< epoch 132 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8776, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8569, node MSE: 0.1823
+<<<<<< epoch 133 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8771, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8565, node MSE: 0.1823
+<<<<<< epoch 134 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8766, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8562, node MSE: 0.1823
+<<<<<< epoch 135 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8760, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8556, node MSE: 0.1823
+<<<<<< epoch 136 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8754, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8556, node MSE: 0.1823
+<<<<<< epoch 137 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8750, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8552, node MSE: 0.1823
+<<<<<< epoch 138 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8748, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8553, node MSE: 0.1823
+<<<<<< epoch 139 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8746, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8550, node MSE: 0.1823
+<<<<<< epoch 140 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8745, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8552, node MSE: 0.1823
+<<<<<< epoch 141 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8747, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8550, node MSE: 0.1823
+<<<<<< epoch 142 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8747, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8550, node MSE: 0.1823
+<<<<<< epoch 143 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258906483650208
+AP: 0.8747, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8551, node MSE: 0.1823
+<<<<<< epoch 144 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8748, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274128913879395
+AP: 0.8551, node MSE: 0.1823
+<<<<<< epoch 145 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8750, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8550, node MSE: 0.1823
+<<<<<< epoch 146 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8748, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8548, node MSE: 0.1823
+<<<<<< epoch 147 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8746, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8546, node MSE: 0.1823
+<<<<<< epoch 148 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8743, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8542, node MSE: 0.1823
+<<<<<< epoch 149 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8740, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8538, node MSE: 0.1823
+<<<<<< epoch 150 >>>>>>
+nodes_gt 0.11032556742429733
+nodes_logits 0.5258907675743103
+AP: 0.8734, node MSE: 0.1840
+nodes_gt 0.1188686266541481
+nodes_logits 0.5274129509925842
+AP: 0.8535, node MSE: 0.1823
