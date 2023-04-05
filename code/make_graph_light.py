@@ -247,7 +247,7 @@ import datetime
 #         # find neighbors for src
 
 #         neighbors = list(filter(lambda x: (abs(x[1] - src[1]) < narrow) and \
-#                            (abs(x[2] - src[2]) < narrow and x[0] != src[0]), nodes_data))
+#                             (abs(x[2] - src[2]) < narrow and x[0] != src[0]), nodes_data))
 #         actual_n_link = min(len(neighbors), n_link)
 #         # get n_link nearest nodes from neighbors
 #         X = np.array([neighbor[1] for neighbor in neighbors], dtype = np.uint16)
@@ -324,7 +324,7 @@ import datetime
     
 # drive = RetinalDataset('STARE', cropped = False).all_data[0]
 # starttime = datetime.datetime.now()
-# graph = make_graph(drive.pred, drive.fov_mask, 2000, 0.5, 100, 4)    
+# graph = make_graph(drive.pred, drive.fov_mask, 1500, 0.5, 100, 4)    
 # endtime = datetime.datetime.now()
 # print(f'Run time : {endtime - starttime}s')
 # visualize_graph(drive.pred, graph)

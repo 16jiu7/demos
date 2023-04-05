@@ -98,6 +98,11 @@ class UNet(nn.Module):
         self.up3 = (Up(channels[2], channels[1] // factor, bilinear))
         self.up4 = (Up(channels[1], channels[0], bilinear))
         self.outc = (OutConv(channels[0], n_classes))
+        
+        self.node_feats_mixer = nn.Sequential(
+            nn.Conv2d(2*self.channels[-1], self.channels[-1], kernel_size=1, padding=0, bias=False),
+            nn.BatchNorm2d(self.channels[-1]),
+            nn.ReLU(inplace=True))
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -125,7 +130,7 @@ class UNet(nn.Module):
             resizer3 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
             resizer4 = nn.Upsample(size = x1.shape[2:], mode='bilinear', align_corners=True)
             feats = torch.cat([x1, resizer1(x2), resizer2(x3), resizer3(x4), resizer4(x5)], dim = 1)
-            return feats, [x1, x2, x3, x4, x5] # shape = batch_size * sum(channels) * H * W
+            return nn.Dropout(0.5)(feats), [x1, x2, x3, x4, x5] # shape = batch_size * sum(channels) * H * W
     
     def run_encoder(self, x):
         # only get downscaled feats, without CNN pred result
@@ -139,12 +144,16 @@ class UNet(nn.Module):
     def run_gnn_for_bottom():
         pass
 
-    def run_decoder(self, feats, side_inputs):
+    def run_decoder(self, feats, node_feats, side_inputs):
         # run left part of u-net, from the deepset feats to predictions
         # feats: deepest feats, side_inputs: list containing x1 to x4
         x1, x2, x3, x4 = side_inputs[0], side_inputs[1], side_inputs[2], side_inputs[3]
-        assert feats.shape[1] == self.channels[-1]
+        #assert feats.shape[1] == self.channels[-1]
         assert len(side_inputs) == len(self.channels) - 1
+        if node_feats is not None:
+            feats = self.node_feats_mixer(torch.concat([feats, node_feats], dim = 1))
+            #feats = feats + node_feats
+
         x = self.up1(feats, x4)
         x = self.up2(x, x3)
         x = self.up3(x, x2)

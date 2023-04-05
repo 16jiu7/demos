@@ -49,11 +49,10 @@ GNN_N_HEADS = 4
 
 cnn = UNet(3, 2, channels = CNN_N_CHANNELS)       
 gnn = GAT(num_of_layers = GNN_N_LAYERS, num_heads_per_layer = [GNN_N_HEADS] * GNN_N_LAYERS, 
-          num_features_per_layer = [248, 248, 248, 248, CNN_N_CHANNELS[-1], 1], 
-          dropout = 0)
+          num_features_per_layer = [248, 248, 248, 248, CNN_N_CHANNELS[-1], 1])
 
 checkpoint = torch.load(f'../weights/pre_training/{TRAIN_DATASET}_pre.pt')
-cnn.load_state_dict(checkpoint) 
+cnn.load_state_dict(checkpoint, strict=False) 
 print(f'CNN model name {CNN_NAME}')
 print(f'CNN pre-trained weights for {TRAIN_DATASET} loaded')
 inputs = torch.randn(1, 3, 512, 512, requires_grad = True)
@@ -61,20 +60,20 @@ flops, params = profile(cnn, inputs = (inputs,), verbose=False)
 flops, params = clever_format([flops, params])
 print(f'the CNN model has {flops} flops, {params} parameters')
 
-outputs = cnn(inputs)
-outputs.sum().backward()
-print('cnn mean grad: ' ,inputs.grad.mean())
+# outputs = cnn(inputs)
+# outputs.sum().backward()
+# print('cnn mean grad: ' ,inputs.grad.mean())
 
 
-graph = nx.path_graph(100)
-node_feats = torch.randn(100, 248) # (N. Fin)
-edges = torch.Tensor([edge for edge in graph.edges]).long().view(2, -1) # (2, E)
-node_feats = Variable(node_feats, requires_grad = True)
-gnn_inputs = (node_feats, edges)
-gnn_logits = gnn(gnn_inputs, with_feats = True)[1][0]
-(gnn_logits.sum() - 0.1).backward()
-print(node_feats.grad)
-print('gnn mean grad: ' ,node_feats.grad.mean())
+# graph = nx.path_graph(100)
+# node_feats = torch.randn(100, 248) # (N. Fin)
+# edges = torch.Tensor([edge for edge in graph.edges]).long().view(2, -1) # (2, E)
+# node_feats = Variable(node_feats, requires_grad = True)
+# gnn_inputs = (node_feats, edges)
+# gnn_logits = gnn(gnn_inputs, with_feats = True)[1][0]
+# (gnn_logits.sum() - 0.1).backward()
+# print(node_feats.grad)
+# print('gnn mean grad: ' ,node_feats.grad.mean())
 
 def setup_random_seed(seed):
      torch.manual_seed(seed)
@@ -83,7 +82,7 @@ def setup_random_seed(seed):
      random.seed(seed)
      torch.backends.cudnn.deterministic = True
 
-N_PIECES = {'DRIVE':1000, 'CHASEDB':1000, 'HRF':2000, 'STARE':1000}
+N_PIECES = {'DRIVE':1000, 'CHASEDB':1500, 'HRF':2000, 'STARE':1000}
 
 
 # In[]
@@ -183,7 +182,7 @@ def my_collate_fn(batch):
 train_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'train', transforms = train_transforms, color_jitter = color_jitter)
 val_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'val', transforms = val_transforms)
     
-train_loader = DataLoader(train_set, batch_size = 1, num_workers = 0, shuffle = False, collate_fn = my_collate_fn)
+train_loader = DataLoader(train_set, batch_size = 1, num_workers = 0, shuffle = True, collate_fn = my_collate_fn)
 val_loader = DataLoader(val_set, batch_size = 1, num_workers = 0, shuffle = False, collate_fn = my_collate_fn)
 
 
@@ -228,6 +227,7 @@ def GetNodeFeats(cnn_feats, roi_head, graph, device = 'cuda' if torch.cuda.is_av
 
 def RunForwardPass(cnn, gnn, roi_head, single_data, slic_label, graph, device = 'cuda' if torch.cuda.is_available() else 'cpu'):
     # run CNN encoder
+    cnn.to(device)
     concat_cnn_feats, side_outs = GetConcatCNNFeats(cnn, single_data)
     node_feats = GetNodeFeats(concat_cnn_feats, roi_head, graph)
     edges = GetRelabeledGraphEdges(graph)
@@ -241,8 +241,8 @@ def RunForwardPass(cnn, gnn, roi_head, single_data, slic_label, graph, device = 
     node_feats_gat = node_feats_gat.mean(-1) # do mean average on heads dim
     
     shallows, bottom = side_outs[:4], side_outs[-1]
-    #bottom_replaced = FuseNodeCenterFeats(graph, bottom, node_feats_gat, single_data.gt.shape)
-    final_logits = cnn.run_decoder(bottom, shallows)
+    bottom_replaced = FuseNodeCenterFeats(graph, torch.zeros_like(bottom), node_feats_gat, single_data.gt.shape)
+    final_logits = cnn.run_decoder(bottom, bottom_replaced, shallows)
     
     return final_logits, node_density_logits # final logits and gnn predictions for node vessel density
     
@@ -302,26 +302,23 @@ def TrainEpoch(train_loader, cnn, gnn, cnn_criterion, gnn_criterion, loss_ratio,
         final_logits, node_density_logits = RunForwardPass(cnn, gnn, roi_head, single_data, slic_label, graph)
         nodes_gt = MakeNodesGT(graph, single_data)
         gt = totensor(single_data.gt).to('cuda').long()
-        #gnn_loss = gnn_criterion(node_density_logits.squeeze(1), nodes_gt)
+        gnn_loss = gnn_criterion(node_density_logits.squeeze(1), nodes_gt)
         cnn_loss = cnn_criterion(final_logits, gt)
         #print(f'cnn_loss: {cnn_loss.item():.4f}, gnn_loss: {gnn_loss.item():.4f}')
-        #tot_loss = cnn_loss + loss_ratio * gnn_loss
-        #tot_loss.backward()
-        cnn_loss.backward()
+        tot_loss = cnn_loss + loss_ratio * gnn_loss
+        tot_loss.backward()
+        #cnn_loss.backward()
         
         cnn_optimizer.step()
-        #gnn_optimizer.step()
+        gnn_optimizer.step()
         cnn_optimizer.zero_grad()
-        #gnn_optimizer.zero_grad()
-        
+        gnn_optimizer.zero_grad()
         
 
-            
-            
-
-def ValEpoch(val_loader, cnn, gnn, cnn_val_criterion, gnn_val_criterion, save_dir = None):
+def ValEpoch(val_loader, cnn, gnn, roi_head, cnn_val_criterion, gnn_val_criterion, past_val_scores, ckpt_path = None):
     cnn.eval(), gnn.eval()
     i = 0
+    tot_val_score = 0
     with torch.no_grad():
         for single_data, slic_label, graph in val_loader:
             i += 1
@@ -330,15 +327,24 @@ def ValEpoch(val_loader, cnn, gnn, cnn_val_criterion, gnn_val_criterion, save_di
             gt = totensor(single_data.gt).to('cuda').long()
             final_pred = softmax(final_logits, dim = 1)[:,1,:,:]
             io.imsave(f'final_pred_{i}.png', img_as_ubyte(final_pred[0,...].detach().cpu().numpy()))
-            cnn_error = cnn_val_criterion(final_pred, gt)
+            cnn_score = cnn_val_criterion(final_pred, gt)
             gnn_error = gnn_val_criterion(sigmoid(node_density_logits).squeeze(1), nodes_gt)
             print(f'nodes_gt {nodes_gt.mean()}')
             print(f'nodes_logits {node_density_logits.sigmoid().mean()}')
-            print(f'AP: {cnn_error:.4f}, node MSE: {gnn_error:.4f}')
+            print(f'AP: {cnn_score:.4f}, node MSE: {gnn_error:.4f}')
+            tot_val_score += cnn_score.item()
+        mean_val_score = tot_val_score / len(val_loader)
+        if mean_val_score > np.array(past_val_scores).max():
+            print('save weights')
+            torch.save(cnn.state_dict(), ckpt_path + 'cnn.pt')
+        return mean_val_score
 
+
+def Test(test_loader, cnn, gnn, criterions, ckpt_path, res_dir):
+    pass
 
 if __name__ == '__main__':
-    N_EPOCH = 150
+    N_EPOCH = 500
     setup_random_seed(2023)
     roi_head = RoiHead(248 * 7 * 7, 248, 248).to('cuda')
 
@@ -349,15 +355,22 @@ if __name__ == '__main__':
     gnn_val_criterion = MeanSquaredError().to('cuda')
     cnn_optimizer= torch.optim.Adam(cnn.parameters(), lr = 1e-4, weight_decay = 0)   
     gnn_optimizer= torch.optim.Adam(gnn.parameters(), lr = 1e-3, weight_decay = 0) 
+    val_scores = [0]
     
     for epoch in range(N_EPOCH):
         print(f"<<<<<< epoch {epoch + 1} >>>>>>")
-        TrainEpoch(train_loader, cnn, gnn, cnn_criterion, gnn_criterion, 0.1, cnn_optimizer, gnn_optimizer)
-        ValEpoch(val_loader, cnn, gnn, cnn_val_criterion, gnn_val_criterion)
+        TrainEpoch(train_loader, cnn, gnn, roi_head, cnn_criterion, gnn_criterion, 0.1, cnn_optimizer, gnn_optimizer)
+        val_score = ValEpoch(val_loader, cnn, gnn, cnn_val_criterion, gnn_val_criterion, val_scores,'../weights/final/')
+        val_scores.append(val_score)
 
 
 
 
+# In[]
+
+val_scores = np.array(val_scores)
+print(val_scores.max())
+print(np.argmax(val_scores))
 
 
 
