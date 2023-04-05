@@ -21,6 +21,7 @@ import torch
 from data_handeler import RetinalDataset
 import datetime
 from operator import attrgetter
+import networkx as nx
 
 hrf_0 = RetinalDataset('STARE').all_data[5]
 pred = hrf_0.pred
@@ -60,10 +61,11 @@ for region in large_slic_regions:
     io.imsave(f'{region.label}.png', img_as_ubyte(region.image))
 # In[]
 
-def get_nodes_from_pred(pred, params = {'threshold': 'min', 'neg_iso_size': 6, 'n_slic_pieces': 500}, verbose = True):
+def get_bboxes_from_pred(pred, params = {'threshold': 'otsu', 'neg_iso_size': 32, 'n_slic_pieces': 800}, verbose = True):
+    # larger neg_iso_size, less node, other params don't matter a lot
     assert pred.dtype == np.uint8
-    if params['threshold'] == 'min':
-        threshold = threshold_minimum(pred)
+    if params['threshold'] == 'otsu':
+        threshold = threshold_otsu(pred)
     certain_pred = pred >= threshold
     certain_pred = remove_small_objects(certain_pred, min_size = params['neg_iso_size'])
     
@@ -75,7 +77,7 @@ def get_nodes_from_pred(pred, params = {'threshold': 'min', 'neg_iso_size': 6, '
     
     large_isos = certain_pred.copy()
     for x in small_iso_bboxes: large_isos[x[0]:x[2], x[1]:x[3]] = 0
-    slic_label = slic(large_isos, 500, mask = large_isos, enforce_connectivity = False, compactness = 100)
+    slic_label = slic(large_isos, params['n_slic_pieces'], mask = large_isos, enforce_connectivity = False, compactness = 100)
     slic_regions = regionprops(slic_label)
     
     for x in slic_regions:
@@ -111,6 +113,7 @@ def get_nodes_from_pred(pred, params = {'threshold': 'min', 'neg_iso_size': 6, '
         small_bboxes += sub_bboxes
     # remove bboxes out of range    
     small_bboxes = list(filter(lambda x: (x[0]>=0) and (x[1]>=0) and(x[2]<=pred.shape[0]) and (x[3]<=pred.shape[1]), small_bboxes))
+    small_bboxes = list(filter(lambda x: certain_pred[x[0]:x[2], x[1]:x[3]].sum() > 0, small_bboxes))
     if verbose : print('number of bboxes: ', len(small_bboxes))
     return small_bboxes, certain_pred
 
@@ -122,23 +125,62 @@ def bbox_vis(bboxes, background, save_dir):
         draw.set_color(background, (rr, cc), color = (255,0,0))
     io.imsave(save_dir, img_as_ubyte(background))    
 
-hrf = RetinalDataset('STARE').all_data
-for data in hrf:
+datas = RetinalDataset('STARE').all_data
+for data in datas:
     pred = data.pred
     mask = data.fov_mask.astype(bool)
     pred = pred * mask
-    bboxes, certain_pred = get_nodes_from_pred(pred)
+    bboxes, certain_pred = get_bboxes_from_pred(pred)
     bbox_vis(bboxes, np.stack([certain_pred]*3, axis = -1), save_dir = f'{data.ID}_bbox_vis.png')
     bbox_sizes = [(x[2] - x[0], x[3] - x[1]) for x in bboxes]
 
 
 
+params_for_stare = {'threshold': 'otsu', 'neg_iso_size': 16, 'n_slic_pieces': 500}
+params_for_drive = {'threshold': 'otsu', 'neg_iso_size': 16, 'n_slic_pieces': 500}
 
 
+# In[]
+
+def add_edges(bboxes, narrow = 100, n_links = 2):
+    assert narrow < 256, 'param narrow is too large'
+    centers = [(i, x[0] + 8, x[1] + 8) for i, x in enumerate(bboxes)]
+
+    graph = nx.Graph()
+    
+    for i, x in enumerate(bboxes):
+        graph.add_node(centers[i][0], center = (centers[i][1], centers[i][2]), bbox = x)
+        
+    for node in graph.nodes:
+        node_x, node_y = graph.nodes[node]['center']
+        neighbors = list(filter(lambda x: (abs(node_x - x[1]) < narrow) and (abs(node_y - x[2]) < narrow) and (node != x[0]), centers))
+
+        X = np.array([neighbor[1] for neighbor in neighbors], dtype = np.uint16)
+        Y = np.array([neighbor[2] for neighbor in neighbors], dtype = np.uint16)
+        DST = (X - node_x) ** 2 + (Y - node_y) ** 2
+        rank = np.argsort(DST)
+        targets = [neighbors[idx][0] for idx in rank[:min(n_links, len(neighbors))]]
+
+        edges = [(node, target) for target in targets] 
+        graph.add_edges_from(edges)
+        
+    return graph    
+
+def vis_graph(graph, background):
+    for edge in graph.edges:
+        start, end = edge
+        r0, c0 = graph.nodes[start]['center']
+        r1, c1 = graph.nodes[end]['center']
+        rr,cc = draw.line(r0, c0, r1, c1)
+        draw.set_color(background, (rr, cc), color = (255,0,0))
+    io.imsave('graph_vis.png', img_as_ubyte(background))    
+
+graph = add_edges(bboxes)        
+vis_graph(graph,  np.stack([certain_pred]*3, axis = -1))
 
 
-
-
+print(graph)
+print(nx.number_connected_components(graph))        
 
 
 
