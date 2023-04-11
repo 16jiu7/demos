@@ -24,9 +24,11 @@ from torch.utils.data import Dataset, DataLoader
 from models.GAT import GAT
 import random
 from torch.autograd import Variable
+from torchmetrics.classification import BinaryAveragePrecision
 
 
-def get_bboxes_from_pred(pred, params = {'threshold': 'otsu', 'neg_iso_size': 6, 'n_slic_pieces': 800}):
+def get_bboxes_from_pred(pred, n_bboxes = 700, params = {'threshold': 'otsu', 'neg_iso_size': 6, 'n_slic_pieces': 800,\
+                                                         'remove_keep': 36}):
     # larger neg_iso_size, less node, other params don't matter a lot
     assert pred.dtype == np.uint8
     if params['threshold'] == 'otsu':
@@ -79,6 +81,13 @@ def get_bboxes_from_pred(pred, params = {'threshold': 'otsu', 'neg_iso_size': 6,
     # remove bboxes out of range    
     small_bboxes = list(filter(lambda x: (x[0]>=0) and (x[1]>=0) and(x[2]<=pred.shape[0]) and (x[3]<=pred.shape[1]), small_bboxes))
     small_bboxes = list(filter(lambda x: certain_pred[x[0]:x[2], x[1]:x[3]].sum() > 0, small_bboxes))
+    # randomly remove bboxes until n_bboxes bboxes left, will keep bboxes containing small vessels
+    n_to_remove = len(small_bboxes) - n_bboxes # number to remove 
+    assert n_to_remove >= 0, f'not enough bboxes (< {n_bboxes}) proposed!'
+    removeable_idx = [i for i in range(len(small_bboxes)) if certain_pred[small_bboxes[i][0]:small_bboxes[i][2], small_bboxes[i][1]:small_bboxes[i][3]].sum() > params['remove_keep']]
+    random.shuffle(removeable_idx)
+    idx_to_remove = removeable_idx[:n_to_remove]
+    small_bboxes = [bbox for i, bbox in enumerate(small_bboxes) if i not in idx_to_remove]
     return small_bboxes, certain_pred
 
 
@@ -184,22 +193,37 @@ def setup_random_seed(seed):
      random.seed(seed)
      torch.backends.cudnn.deterministic = True
      
-def place_bbox_back(logits, pred, graph):
+def place_bbox_back(logits, pred, graph, from_zeros = True):
     # pred.shape == 1,1,H,W
     logits = logits.view(logits.shape[0], 17, 17)
-    for idx, node in enumerate(graph.nodes()):
-        c_x, c_y = graph.nodes[node]['center']
-        pred[:,:,c_x-8 : c_x+9, c_y-8 : c_y+9] = logits[idx, :, :]    
-    return pred    
+    if not from_zeros:
+        for idx, node in enumerate(graph.nodes()):
+            c_x, c_y = graph.nodes[node]['center']
+            pred[:,:,c_x-8 : c_x+9, c_y-8 : c_y+9] = logits[idx, :, :]    
+        return pred    
+    else:
+        zeros = torch.zeros_like(pred)
+        for idx, node in enumerate(graph.nodes()):
+            c_x, c_y = graph.nodes[node]['center']
+            zeros[:,:,c_x-8 : c_x+9, c_y-8 : c_y+9] = logits[idx, :, :]          
+        return zeros    
 # In[]
 setup_random_seed(100)
 TRAIN_DATASET = 'DRIVE'
 criterion = torch.nn.BCEWithLogitsLoss()
-gnn = GAT(3, [4,4,4], [17*17*4, 17*17, 17*17, 17*17], dropout = 0.2)
+gnn = GAT(3, [2,2,2], [17*17*4, 17*17*4, 17*17*4, 17*17], dropout = 0.2) 
+# 3 layers, more layer does not help
+# gnn dropout 0.2 is good, 0.6 sucks
+# hidden dim equal to input dim is good, like [17*17*4, 17*17*4, 17*17*4, 17*17]
+# large hidden dim (more than input dim) does not help
+# 2 heads per layer is enough, 1 head sucks, > 4 heads does not help
+
+
 optimizer= torch.optim.Adam(gnn.parameters(), lr = 1e-3, weight_decay = 0)
 n_epoch = 150
 device = 'cuda'
 gnn = gnn.to(device)
+val_criterion = BinaryAveragePrecision().to(device)
 
 train_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'train')
 val_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'val')   
@@ -214,15 +238,14 @@ for epoch in range(n_epoch):
         pred = pred * mask
         bboxes, certain_pred = get_bboxes_from_pred(pred)
         graph = add_edges(bboxes)
+        #vis_bbox_graph(bboxes, graph, np.stack([certain_pred]*3, axis = -1), save_dir = f'{data.ID}_bbox_vis.png')
         ori = ToTensor()(data.ori).unsqueeze(0).to(device)
         pred_tensor = ToTensor()(data.pred).unsqueeze(0).to(device)
         node_feats, edges = bbox_graph_to_torch(graph, input_feats = torch.cat([ori, pred_tensor], dim = 1))
         node_feats, edges = node_feats.to(device), edges.to(device)
         logits, _ = gnn((node_feats, edges), with_feats = False)
         gt = ToTensor()(data.gt).unsqueeze(0).to(device)
-        #gts, _ = bbox_graph_to_torch(graph, gt)
         reconstructed = place_bbox_back(logits, pred_tensor, graph)
-        #reconstructed, gt = reconstructed.view(1,-1), gt.view(1,-1)
         loss = criterion(reconstructed, gt)
         
         epoch_loss += loss.item()
@@ -232,25 +255,31 @@ for epoch in range(n_epoch):
     epoch_mean_loss = epoch_loss / len(train_loader)
     print(f'epoch {epoch+1}, loss {epoch_mean_loss:.4f}')
     
-    for data in val_loader:
-        with torch.no_grad():
-            for data in val_loader:
-                pred = data.pred
-                mask = data.fov_mask.astype(bool)
-                pred = pred * mask
-                bboxes, certain_pred = get_bboxes_from_pred(pred)
-                graph = add_edges(bboxes)
-                ori = ToTensor()(data.ori).unsqueeze(0).to(device)
-                pred_tensor = ToTensor()(data.pred).unsqueeze(0).to(device)
-                node_feats, edges = bbox_graph_to_torch(graph, input_feats = torch.cat([ori, pred_tensor], dim = 1))
-                node_feats, edges = node_feats.to(device), edges.to(device)
-                logits, _ = gnn((node_feats, edges), with_feats = False)
-                gt = ToTensor()(data.gt).unsqueeze(0).to(device)
-                #gts, _ = bbox_graph_to_torch(graph, gt)
-                s_logits = torch.nn.Sigmoid()(logits)
-                reconstructed = place_bbox_back(s_logits, pred_tensor, graph)
-                outputs = reconstructed[0][0].cpu().numpy()
-                io.imsave(f'{data.ID}_gnn_pred.png', img_as_ubyte(outputs))
+
+    with torch.no_grad():
+        for data in val_loader:
+            pred = data.pred
+            mask = data.fov_mask.astype(bool)
+            pred = pred * mask
+            bboxes, certain_pred = get_bboxes_from_pred(pred)
+            graph = add_edges(bboxes)
+            ori = ToTensor()(data.ori).unsqueeze(0).to(device)
+            pred_tensor = ToTensor()(data.pred).unsqueeze(0).to(device)
+            node_feats, edges = bbox_graph_to_torch(graph, input_feats = torch.cat([ori, pred_tensor], dim = 1))
+            node_feats, edges = node_feats.to(device), edges.to(device)
+            logits, _ = gnn((node_feats, edges), with_feats = False)
+            gt = ToTensor()(data.gt).unsqueeze(0).to(device)
+            #gts, _ = bbox_graph_to_torch(graph, gt)
+            s_logits = torch.nn.Sigmoid()(logits)
+            reconstructed = place_bbox_back(s_logits, pred_tensor, graph)
+            before_ap = val_criterion(pred_tensor, gt)
+            after_ap = val_criterion(reconstructed, gt)
+            print(f'AP {before_ap:.4f} to {after_ap:.4f}')
+            outputs = reconstructed[0][0].cpu().numpy()
+            io.imsave(f'{data.ID}_gnn_pred.png', img_as_ubyte(outputs))
+            
+            
+            
 del gnn
 
 

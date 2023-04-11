@@ -31,7 +31,12 @@ class RetinalGAT(nn.Module):
 
         self.gat_net = nn.Sequential(*gat_layers)
         
+        self.pos_embed = nn.Parameter(torch.zeros(1000, 17*17*4)) # 1D positional embedding as in ViT
+        self.node_feats_drop = nn.Dropout()
+        
+        
     def forward(self, feats, graph):
+        n_nodes = feats.shape[0]
         pass
 
 
