@@ -1,47 +1,102 @@
-import torch
-import torch.nn as nn
 import enum
 from torch.autograd import Variable
 
 import torch.nn as nn
 import torch
+from torchvision.transforms import ToTensor
 
 class RetinalGAT(nn.Module):
-    def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, add_skip_connection=True, bias=True,
-                 dropout=0.6, log_attention_weights=False):
-        super.__init__()
-        assert num_of_layers == len(num_heads_per_layer) == len(num_features_per_layer) - 1, f'Enter valid arch params.'
+    def __init__(self, 
+                 # gat params:
+                 gat_num_of_layers, 
+                 gat_num_heads_per_layer, 
+                 gat_num_features_per_layer, 
+                 gat_skip_connection=True, 
+                 gat_bias=True,
+                 gat_dropout=0.2, 
+                 gat_log_attention_weights=False,
+                 # other params:
+                 num_of_bboxes = 900,
+                 node_feats_drop = 0.2,
+                 output_layer = True
+                 
+                     ):
+        super().__init__()
+        assert gat_num_of_layers == len(gat_num_heads_per_layer) == len(gat_num_features_per_layer) - 1, f'Enter valid arch params.'
 
-        num_heads_per_layer = [1] + num_heads_per_layer  # trick - so that I can nicely create GAT layers below
+        num_heads_per_layer = [1] + gat_num_heads_per_layer  # trick - so that I can nicely create GAT layers below
 
         gat_layers = []  # collect GAT layers
-        for i in range(num_of_layers):
+        for i in range(gat_num_of_layers):
             layer = GATLayer(
-                num_in_features=num_features_per_layer[i] * num_heads_per_layer[i],  # consequence of concatenation
-                num_out_features=num_features_per_layer[i+1],
+                num_in_features=gat_num_features_per_layer[i] * num_heads_per_layer[i],  # consequence of concatenation
+                num_out_features=gat_num_features_per_layer[i+1],
                 num_of_heads=num_heads_per_layer[i+1],
-                concat=True if i < num_of_layers - 1 else False,  # last GAT layer does mean avg, the others do concat
-                activation=nn.ELU() if i < num_of_layers - 1 else None,  # last layer just outputs raw scores
-                dropout_prob=dropout,
-                add_skip_connection=add_skip_connection,
-                bias=bias,
-                log_attention_weights=log_attention_weights
+                concat=True if i < gat_num_of_layers - 1 else False,  # last GAT layer does mean avg, the others do concat
+                activation=nn.ELU() if i < gat_num_of_layers - 1 else None,  # last layer just outputs raw scores
+                dropout_prob=gat_dropout,
+                add_skip_connection=gat_skip_connection,
+                bias=gat_bias,
+                log_attention_weights=gat_log_attention_weights
             )
             gat_layers.append(layer)
 
         self.gat_net = nn.Sequential(*gat_layers)
+        self.num_of_bboxes = num_of_bboxes
+        #self.pos_embed = nn.Parameter(torch.zeros(num_of_bboxes, gat_num_features_per_layer[0])) # 1D positional embedding as in ViT
+        self.node_feats_drop = nn.Dropout(node_feats_drop) if node_feats_drop is not None else None
+        if output_layer:
+            self.output_layer = nn.Sequential(nn.Conv2d(num_of_bboxes, num_of_bboxes, 3,1,1, groups = num_of_bboxes), nn.ReLU6())
+    
+        self.input_layer = nn.Sequential(nn.Conv2d(4,1,3,1,1), nn.ReLU6())
+                                         
+                                           # nn.Conv2d(2,1,3,1,1), nn.ReLU6(),
+                                           # nn.Conv2d(1,1,3,1,1), nn.ReLU6())
+    def bbox_graph_to_torch(self, input_feats, graph):
+        # get node feats, transform edge list to torch tensor
+        N,C,H,W = input_feats.shape
+        assert N == 1 
+        node_feats = []
+        for node in graph.nodes: # {'center': (90, 374), 'bbox': (82, 366, 98, 382)}
+            x, y = graph.nodes[node]['center']
+            patch = input_feats[:,:,x-8:x+9,y-8:y+9]
+            node_feats.append(patch.flatten().view(1, -1)) # 1,C,H,W -> C*H*W
+        node_feats = torch.cat(node_feats, dim = 0)    
+        edges = torch.Tensor([edge for edge in graph.edges]).long().view(2, -1)
+        edges = edges.to(node_feats.device)
+        return node_feats, edges
+    
+    def place_bbox_back(self, shape, logits, graph):
+        # pred.shape == 1,1,H,W
+        #logits = logits.view(logits.shape[0], 17, 17)
+        zeros = torch.zeros(shape, dtype = torch.float32).to(logits.device)
+        for idx, node in enumerate(graph.nodes()):
+            c_x, c_y = graph.nodes[node]['center']
+            zeros[c_x-8 : c_x+9, c_y-8 : c_y+9] = logits[idx, :, :]          
+        return zeros  
+    
+    def forward(self, data, input_feats, graph, sigmoid = True):
+        pred_tensor = ToTensor()(data.pred).unsqueeze(0).to(input_feats.device)
+        input_feats = pred_tensor + self.input_layer(input_feats)
         
-        self.pos_embed = nn.Parameter(torch.zeros(1000, 17*17*4)) # 1D positional embedding as in ViT
-        self.node_feats_drop = nn.Dropout()
+        node_feats, edges = self.bbox_graph_to_torch(input_feats, graph)
         
+        pred_patches, _ = self.bbox_graph_to_torch(pred_tensor, graph)
+        pred_feats, _ = self.bbox_graph_to_torch(pred_tensor, graph)
         
-    def forward(self, feats, graph):
-        n_nodes = feats.shape[0]
-        pass
+        assert self.num_of_bboxes == node_feats.shape[0]
+        if self.node_feats_drop is not None: node_feats = self.node_feats_drop(node_feats)
+        data = (node_feats, edges)
+        out_node_feats, _ = self.gat_net(data)
+        out_node_feats = out_node_feats.view(self.num_of_bboxes, 17, 17)
+        if hasattr(self, 'output_layer'):
+            out_node_feats = out_node_feats + self.output_layer(out_node_feats)  
+        out_node_feats = out_node_feats + pred_patches.view(-1, 17, 17)   
+        if sigmoid : out_node_feats = nn.Sigmoid()(out_node_feats)    
+        rebuilt = self.place_bbox_back(input_feats[0, 0].shape, out_node_feats, graph)
 
+        return rebuilt
 
-
-        
 
 class GAT(torch.nn.Module):
     """
@@ -79,7 +134,7 @@ class GAT(torch.nn.Module):
         )
     # data is just a (in_nodes_features, edge_index) tuple, I had to do it like this because of the nn.Sequential:
     # https://discuss.pytorch.org/t/forward-takes-2-positional-arguments-but-3-were-given-for-nn-sqeuential-with-linear-layers/65698
-    def forward(self, data, with_feats):
+    def forward(self, data, with_feats = False):
         if with_feats:
             encoder, classifier = self.gat_net[:-1], self.gat_net[-1]
             feats = encoder(data)

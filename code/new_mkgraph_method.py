@@ -5,6 +5,7 @@ Created on Wed Mar 29 16:27:15 2023
 
 @author: jiu7
 """
+import os, pickle
 from skimage.segmentation import slic
 from skimage.segmentation import mark_boundaries
 from skimage.measure import regionprops, label
@@ -16,18 +17,31 @@ import skimage.io as io
 import numpy as np
 import networkx as nx
 import torch
+import torch.nn as nn
 from data_handeler import RetinalDataset
 import datetime
 import networkx as nx
 from torchvision.transforms import ToTensor
 from torch.utils.data import Dataset, DataLoader
-from models.GAT import GAT
+from models.GAT import GAT, RetinalGAT
 import random
 from torch.autograd import Variable
 from torchmetrics.classification import BinaryAveragePrecision
+import matplotlib.pyplot as plt
+from albumentations.augmentations.transforms import ColorJitter
+from thop import profile, clever_format
+from datetime import datetime
 
+def setup_random_seed(seed):
+     torch.manual_seed(seed)
+     torch.cuda.manual_seed_all(seed)
+     np.random.seed(seed)
+     random.seed(seed)
+     torch.backends.cudnn.deterministic = True
+     
+setup_random_seed(100)     
 
-def get_bboxes_from_pred(pred, n_bboxes = 700, params = {'threshold': 'otsu', 'neg_iso_size': 6, 'n_slic_pieces': 800,\
+def get_bboxes_from_pred(pred, n_bboxes = 1000, params = {'threshold': 'otsu', 'neg_iso_size': 6, 'n_slic_pieces': 700,\
                                                          'remove_keep': 36}):
     # larger neg_iso_size, less node, other params don't matter a lot
     assert pred.dtype == np.uint8
@@ -81,13 +95,15 @@ def get_bboxes_from_pred(pred, n_bboxes = 700, params = {'threshold': 'otsu', 'n
     # remove bboxes out of range    
     small_bboxes = list(filter(lambda x: (x[0]>=0) and (x[1]>=0) and(x[2]<=pred.shape[0]) and (x[3]<=pred.shape[1]), small_bboxes))
     small_bboxes = list(filter(lambda x: certain_pred[x[0]:x[2], x[1]:x[3]].sum() > 0, small_bboxes))
-    # randomly remove bboxes until n_bboxes bboxes left, will keep bboxes containing small vessels
-    n_to_remove = len(small_bboxes) - n_bboxes # number to remove 
-    assert n_to_remove >= 0, f'not enough bboxes (< {n_bboxes}) proposed!'
-    removeable_idx = [i for i in range(len(small_bboxes)) if certain_pred[small_bboxes[i][0]:small_bboxes[i][2], small_bboxes[i][1]:small_bboxes[i][3]].sum() > params['remove_keep']]
-    random.shuffle(removeable_idx)
-    idx_to_remove = removeable_idx[:n_to_remove]
-    small_bboxes = [bbox for i, bbox in enumerate(small_bboxes) if i not in idx_to_remove]
+    
+    # add random bboxes if not enough
+    n_to_add = n_bboxes - len(small_bboxes)
+    assert n_to_add >= 0, f'too many bboxes (> {n_bboxes}) proposed!'
+    for i in range(n_to_add):
+        h, w = pred.shape[0], pred.shape[1]
+        r_point = (random.randint(0, h - 18), random.randint(0, w - 18))
+        r_bbox = (r_point[0], r_point[1], r_point[0] + 18, r_point[1] + 18)
+        small_bboxes.append(r_bbox)  
     return small_bboxes, certain_pred
 
 
@@ -152,21 +168,11 @@ def vis_bbox_graph(bboxes, graph, background, save_dir):
         draw.set_color(background, (rr, cc), color = (0,0,255))
     io.imsave(save_dir, img_as_ubyte(background))
 
-def bbox_graph_to_torch(graph, input_feats):
-    # get node feats, transform edge list to torch tensor
-    N,C,H,W = input_feats.shape
-    assert N == 1 
-    node_feats = []
-    for node in graph.nodes: # {'center': (90, 374), 'bbox': (82, 366, 98, 382)}
-        x, y = graph.nodes[node]['center']
-        patch = input_feats[:,:,x-8:x+9,y-8:y+9]
-        node_feats.append(patch.flatten().view(1, -1)) # 1,C,H,W -> C*H*W
-    node_feats = torch.cat(node_feats, dim = 0)    
-    edges = torch.Tensor([edge for edge in graph.edges]).long().view(2, -1)
-    return node_feats, edges
+brightness, contrast, saturation, hue = 0.25, 0.25, 0.25, 0.01
+color_jitter = ColorJitter(brightness, contrast, saturation, hue, always_apply = False, p = 0.3)
 
 class TrainDataset(Dataset):
-    def __init__(self, dataset_name, split, transforms = None, color_jitter = None):
+    def __init__(self, dataset_name, split, transforms = None, color_jitter = color_jitter):
         self.split = split
         self.dataset_name = dataset_name
         self.transforms = transforms
@@ -175,51 +181,111 @@ class TrainDataset(Dataset):
             self.data = RetinalDataset(self.dataset_name, cropped = True).all_training
         elif split == 'val':
             self.data = RetinalDataset(self.dataset_name, cropped = True).all_val
+        elif split == 'test':
+            self.data = RetinalDataset(self.dataset_name, cropped = True).all_test
 
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, cache_dir = './cache/', time = False):
         data = self.data[idx]
-        return data
+        if self.split == 'train' and self.color_jitter is not None:
+            data.ori = self.color_jitter(image = data.ori)['image']  
+        graph_path = cache_dir + data.ID + '.graph'
+        certain_pred_path = cache_dir + data.ID + '_certain_pred.npy'
+        if os.path.exists(graph_path) and os.path.exists(certain_pred_path):
+            graph = pickle.load(open(graph_path, 'rb'))
+            #certain_pred = np.load(certain_pred_path)
+        else:
+            start = datetime.now()
+    
+            pred = data.pred
+            mask = data.fov_mask.astype(bool)
+            pred = pred * mask
+            bboxes, certain_pred = get_bboxes_from_pred(pred)
+            graph = add_edges(bboxes)
+            
+            end = datetime.now()
+            if time : print(f'make graph time {int((end-start).total_seconds()*1000)} ms')
+            # make graph time: 400-500 ms for DRIVE, 1000 bboxes
+            
+            with open(graph_path, "wb") as f:    
+                pickle.dump(graph, f)
+            
+        return data, graph
 
 def my_collate_fn(batch):
     return batch[0]
+      
+    
+def freeze(gat, tar = 'gat'):
+    assert tar in ['gat', 'output'], 'tar = gat or output!'
+    # freeze gat and train the output layer
+    if tar == 'gat':
+        for name, param in gat.named_parameters():
+            if 'gat' in name:
+                param.requires_grad = False
+            elif 'output_layer' in name:
+                param.requires_grad = True
+    # freeze output layer
+    elif tar == 'output':
+        for name, param in gat.named_parameters():
+            if 'gat' in name:
+                param.requires_grad = True
+            elif 'output_layer' in name:
+                param.requires_grad = False
+            
+def draw_figs(x, losses, vals):
+    plt.figure(figsize=(10,5), dpi = 200)
+    plt.subplot(211)
+    plt.title('loss')
+    plt.grid()
+    plt.plot(x, losses, c = 'b', marker = '.', linewidth = 1, markersize = 2)
+    for epoch, loss in zip(x, losses):
+        if epoch % 10 == 0:
+            plt.text(epoch, loss, f'{loss:.3f}', fontdict={'fontsize':6})
+    
 
-def setup_random_seed(seed):
-     torch.manual_seed(seed)
-     torch.cuda.manual_seed_all(seed)
-     np.random.seed(seed)
-     random.seed(seed)
-     torch.backends.cudnn.deterministic = True
-     
-def place_bbox_back(logits, pred, graph, from_zeros = True):
-    # pred.shape == 1,1,H,W
-    logits = logits.view(logits.shape[0], 17, 17)
-    if not from_zeros:
-        for idx, node in enumerate(graph.nodes()):
-            c_x, c_y = graph.nodes[node]['center']
-            pred[:,:,c_x-8 : c_x+9, c_y-8 : c_y+9] = logits[idx, :, :]    
-        return pred    
-    else:
-        zeros = torch.zeros_like(pred)
-        for idx, node in enumerate(graph.nodes()):
-            c_x, c_y = graph.nodes[node]['center']
-            zeros[:,:,c_x-8 : c_x+9, c_y-8 : c_y+9] = logits[idx, :, :]          
-        return zeros    
-# In[]
-setup_random_seed(100)
-TRAIN_DATASET = 'DRIVE'
-criterion = torch.nn.BCEWithLogitsLoss()
-gnn = GAT(3, [2,2,2], [17*17*4, 17*17*4, 17*17*4, 17*17], dropout = 0.2) 
+    plt.subplot(212)
+    plt.title('val')
+    plt.grid()
+    plt.plot(x, vals, c = 'r', marker = '.', linewidth = 1, markersize = 2)
+    for epoch, val in zip(x, vals):
+        if epoch % 10 == 0:
+            plt.text(epoch, val, f'{val:.3f}', fontdict={'fontsize':6})
+
+    plt.tight_layout() # otherwise subplots will land on each other
+    plt.savefig('losses_val.png')    
+
+gnn = RetinalGAT(
+    gat_num_of_layers = 3, 
+    gat_num_heads_per_layer = [2,2,2], 
+    gat_skip_connection = True,
+    gat_num_features_per_layer = [17*17, 17*17, 17*17, 17*17], 
+    gat_dropout = 0.2,
+    num_of_bboxes = 1000,
+    node_feats_drop = None,
+    output_layer = False
+    )
 # 3 layers, more layer does not help
 # gnn dropout 0.2 is good, 0.6 sucks
+# any node feats dropout sucks
 # hidden dim equal to input dim is good, like [17*17*4, 17*17*4, 17*17*4, 17*17]
 # large hidden dim (more than input dim) does not help
 # 2 heads per layer is enough, 1 head sucks, > 4 heads does not help
+# pos embed sucks
+
+for name, params in gnn.named_parameters():
+    print(name, params.shape)
+
+torch.save(gnn.state_dict(),'gnn.pt')
 
 
-optimizer= torch.optim.Adam(gnn.parameters(), lr = 1e-3, weight_decay = 0)
+
+# In[]
+TRAIN_DATASET = 'DRIVE'
+criterion = torch.nn.BCEWithLogitsLoss()
+optimizer= torch.optim.Adam(gnn.parameters(), lr = 5e-4, weight_decay = 0)
 n_epoch = 150
 device = 'cuda'
 gnn = gnn.to(device)
@@ -227,61 +293,84 @@ val_criterion = BinaryAveragePrecision().to(device)
 
 train_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'train')
 val_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'val')   
+test_set = TrainDataset(dataset_name = TRAIN_DATASET, split = 'test')   
 train_loader = DataLoader(train_set, batch_size = 1, num_workers = 0, shuffle = True, collate_fn = my_collate_fn)
 val_loader = DataLoader(val_set, batch_size = 1, num_workers = 0, shuffle = False, collate_fn = my_collate_fn)
+test_loader = DataLoader(test_set, batch_size = 1, num_workers = 0, shuffle = False, collate_fn = my_collate_fn)
+
+losses = []
+val_aps = []
 
 for epoch in range(n_epoch):
     epoch_loss = 0
-    for data in train_loader:
-        pred = data.pred
-        mask = data.fov_mask.astype(bool)
-        pred = pred * mask
-        bboxes, certain_pred = get_bboxes_from_pred(pred)
-        graph = add_edges(bboxes)
+    for i, (data, graph) in enumerate(train_loader):
         #vis_bbox_graph(bboxes, graph, np.stack([certain_pred]*3, axis = -1), save_dir = f'{data.ID}_bbox_vis.png')
         ori = ToTensor()(data.ori).unsqueeze(0).to(device)
         pred_tensor = ToTensor()(data.pred).unsqueeze(0).to(device)
-        node_feats, edges = bbox_graph_to_torch(graph, input_feats = torch.cat([ori, pred_tensor], dim = 1))
-        node_feats, edges = node_feats.to(device), edges.to(device)
-        logits, _ = gnn((node_feats, edges), with_feats = False)
-        gt = ToTensor()(data.gt).unsqueeze(0).to(device)
-        reconstructed = place_bbox_back(logits, pred_tensor, graph)
-        loss = criterion(reconstructed, gt)
+        input_feats = torch.cat([ori, pred_tensor], dim = 1).to(device)
+        reconstructed = gnn(data, input_feats, graph, sigmoid = False)
         
+        if  epoch == 0 and i == 0:
+            flops, params = profile(gnn, inputs = (data, input_feats, graph), verbose=False)
+            flops, params = clever_format([flops, params])
+            print(f'the model has {flops} flops, {params} parameters')
+            # 2.67G flops and 2.67M params        
+            start = datetime.now()
+            reconstructed = gnn(data, input_feats, graph, sigmoid = False)
+            end = datetime.now()
+            print(f'forward pass time {int((end-start).total_seconds()*1000)} ms')
+            # 44ms for cpu and 38ms for gpu
+                    
+        gt = ToTensor()(data.gt).unsqueeze(0).to(device)
+        gat_loss = criterion(reconstructed, gt[0,0])
+        #out_loss = criterion(logits, gt_patches.view(1000, 17,17))
+        loss = gat_loss
         epoch_loss += loss.item()
         loss.backward()
+        #freeze(gnn,tar = 'output')
         optimizer.step()
         optimizer.zero_grad()
     epoch_mean_loss = epoch_loss / len(train_loader)
+    losses.append(epoch_mean_loss)
     print(f'epoch {epoch+1}, loss {epoch_mean_loss:.4f}')
     
 
     with torch.no_grad():
-        for data in val_loader:
-            pred = data.pred
-            mask = data.fov_mask.astype(bool)
-            pred = pred * mask
-            bboxes, certain_pred = get_bboxes_from_pred(pred)
-            graph = add_edges(bboxes)
+        mean_ap = 0
+        for data, graph in val_loader:
             ori = ToTensor()(data.ori).unsqueeze(0).to(device)
             pred_tensor = ToTensor()(data.pred).unsqueeze(0).to(device)
-            node_feats, edges = bbox_graph_to_torch(graph, input_feats = torch.cat([ori, pred_tensor], dim = 1))
-            node_feats, edges = node_feats.to(device), edges.to(device)
-            logits, _ = gnn((node_feats, edges), with_feats = False)
+            input_feats = torch.cat([ori, pred_tensor], dim = 1)
+            reconstructed = gnn(data, input_feats, graph, sigmoid = True)
             gt = ToTensor()(data.gt).unsqueeze(0).to(device)
-            #gts, _ = bbox_graph_to_torch(graph, gt)
-            s_logits = torch.nn.Sigmoid()(logits)
-            reconstructed = place_bbox_back(s_logits, pred_tensor, graph)
-            before_ap = val_criterion(pred_tensor, gt)
-            after_ap = val_criterion(reconstructed, gt)
-            print(f'AP {before_ap:.4f} to {after_ap:.4f}')
-            outputs = reconstructed[0][0].cpu().numpy()
+            ap = val_criterion(reconstructed, gt[0,0]).cpu().numpy()
+            mean_ap += ap
+            outputs = reconstructed.cpu().numpy()
             io.imsave(f'{data.ID}_gnn_pred.png', img_as_ubyte(outputs))
-            
-            
-            
-del gnn
+        mean_ap = mean_ap / len(val_loader)
+        val_aps.append(mean_ap)
+        print(f'val AP: {mean_ap:.4f}')
 
+draw_figs([i for i in range(1, n_epoch + 1)], losses, val_aps)         
+            
+
+# In[]
+# test
+with torch.no_grad():
+    mean_ap = 0
+    for data, graph in test_loader:
+        ori = ToTensor()(data.ori).unsqueeze(0).to(device)
+        pred_tensor = ToTensor()(data.pred).unsqueeze(0).to(device)
+        input_feats = torch.cat([ori, pred_tensor], dim = 1)
+        reconstructed = gnn(data, input_feats, graph, sigmoid = True)
+        gt = ToTensor()(data.gt).unsqueeze(0).to(device)
+        ap = val_criterion(reconstructed, gt[0,0]).cpu().numpy()
+        mean_ap += ap
+        outputs = reconstructed.cpu().numpy()
+        io.imsave(f'{data.ID}_gnn_pred.png', img_as_ubyte(outputs))
+    mean_ap = mean_ap / len(test_loader)
+    val_aps.append(mean_ap)
+    print(f'test AP: {mean_ap:.4f}')
 
 
 

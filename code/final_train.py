@@ -36,6 +36,7 @@ import tqdm, sys
 from utils import printlog, StepRunner, EpochRunner, train_model
 from torchmetrics.classification import BinaryAveragePrecision, BinaryAUROC, Accuracy, Precision, Recall, Specificity, F1Score
 from torchmetrics import MeanSquaredError
+from datetime import datetime
 
 CNN_NAME = 'UNet_small_4_8' # 4 times of downscaling, the first conv layer has 8 channels 
 TRAIN_DATASET = 'CHASEDB'
@@ -59,6 +60,16 @@ inputs = torch.randn(1, 3, 512, 512, requires_grad = True)
 flops, params = profile(cnn, inputs = (inputs,), verbose=False)
 flops, params = clever_format([flops, params])
 print(f'the CNN model has {flops} flops, {params} parameters')
+device = 'cuda'
+start = datetime.now()
+cnn.to(device)
+_ = cnn(inputs.to(device))
+end = datetime.now()
+print(f'forward pass time {int((end-start).total_seconds()*1000)} ms')
+# 900-1000 ms in cpu forward pass
+# 5-10 ms in gpu forward pass
+
+# the CNN model has 3.53G flops, 486.56K parameters
 
 # outputs = cnn(inputs)
 # outputs.sum().backward()
