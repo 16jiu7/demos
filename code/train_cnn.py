@@ -116,7 +116,7 @@ def draw_figs(x, losses, vals):
     plt.tight_layout() # otherwise subplots will land on each other
     plt.savefig('losses_val.png')     
 # In[]
-setup_random_seed(167)    
+setup_random_seed(8836)    
 TRAIN_DATASET = 'DRIVE'
 criterion = torch.nn.BCEWithLogitsLoss()
 n_epoch = 200
@@ -225,7 +225,7 @@ with torch.no_grad():
 # 0.8388, 0.8433, 0.8358 ~0.8393
 # M2UNet_3plus_dw 2.25G flops, 557.01K parameters
 # 0.8287, 0.8348, 0.8276 ~0.8304
-# the model M2UNet_3plus_dw has 2.28G flops, 557.43K parameters
-
+# M2UNet_3plus_dw with ori shortcut 2.28G flops, 557.43K parameters
+# 0.8360, 0.8292, 0.8410 ~0.8354
 
 
