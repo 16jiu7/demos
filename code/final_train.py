@@ -25,7 +25,7 @@ from make_graph_light import GraphedImage
 from data_handeler import RetinalDataset
 import networkx as nx
 import datetime
-from models.unet.unet_model import UNet
+from models.unet_model import UNet
 from models.GAT import GAT
 from skimage.util import img_as_ubyte
 from skimage.measure import regionprops
@@ -60,6 +60,7 @@ inputs = torch.randn(1, 3, 512, 512, requires_grad = True)
 flops, params = profile(cnn, inputs = (inputs,), verbose=False)
 flops, params = clever_format([flops, params])
 print(f'the CNN model has {flops} flops, {params} parameters')
+# 3.53G flops, 486.56K parameters
 device = 'cuda'
 start = datetime.now()
 cnn.to(device)

@@ -48,10 +48,11 @@ class RetinalGAT(nn.Module):
         if output_layer:
             self.output_layer = nn.Sequential(nn.Conv2d(num_of_bboxes, num_of_bboxes, 3,1,1, groups = num_of_bboxes), nn.ReLU6())
     
-        self.input_layer = nn.Sequential(nn.Conv2d(4,1,3,1,1), nn.ReLU6())
+        self.input_layer = nn.Sequential(nn.Conv2d(3,8,3,1,1), nn.ReLU6(),
+                                         nn.Conv2d(8,8,3,1,1), nn.ReLU6(),
+                                         nn.Conv2d(8,1,3,1,1), nn.ReLU6())
+
                                          
-                                           # nn.Conv2d(2,1,3,1,1), nn.ReLU6(),
-                                           # nn.Conv2d(1,1,3,1,1), nn.ReLU6())
     def bbox_graph_to_torch(self, input_feats, graph):
         # get node feats, transform edge list to torch tensor
         N,C,H,W = input_feats.shape
@@ -75,7 +76,7 @@ class RetinalGAT(nn.Module):
             zeros[c_x-8 : c_x+9, c_y-8 : c_y+9] = logits[idx, :, :]          
         return zeros  
     
-    def forward(self, data, input_feats, graph, sigmoid = True):
+    def forward(self, data, input_feats, graph, node_feats_act = True):
         pred_tensor = ToTensor()(data.pred).unsqueeze(0).to(input_feats.device)
         input_feats = pred_tensor + self.input_layer(input_feats)
         
@@ -89,13 +90,13 @@ class RetinalGAT(nn.Module):
         data = (node_feats, edges)
         out_node_feats, _ = self.gat_net(data)
         out_node_feats = out_node_feats.view(self.num_of_bboxes, 17, 17)
-        if hasattr(self, 'output_layer'):
-            out_node_feats = out_node_feats + self.output_layer(out_node_feats)  
-        out_node_feats = out_node_feats + pred_patches.view(-1, 17, 17)   
-        if sigmoid : out_node_feats = nn.Sigmoid()(out_node_feats)    
+        # if hasattr(self, 'output_layer'):
+        #     out_node_feats = out_node_feats + self.output_layer(out_node_feats)  
+        #out_node_feats = out_node_feats + pred_patches.view(-1, 17, 17)   
+        if node_feats_act : out_node_feats = nn.Sigmoid()(out_node_feats)    
         rebuilt = self.place_bbox_back(input_feats[0, 0].shape, out_node_feats, graph)
 
-        return rebuilt
+        return rebuilt, out_node_feats
 
 
 class GAT(torch.nn.Module):
