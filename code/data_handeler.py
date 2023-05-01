@@ -28,22 +28,29 @@ class single_data():
         assert split in ['training', 'val','test']
         self.split = split
         self.shape = self.fov_mask.shape # shape by H, W
-        self.bbox = None # added by crop2fov function 
+        self.bbox = self.get_bbox() # added by crop2fov function 
         self.pred = None
 
-    def crop2fov(self):
+    def crop2fov(self, mode = 'all'):
         assert self.pred is not None
+        assert mode in ['all', 'ori']
         bbox = regionprops(label_image = self.fov_mask)[0].bbox
         assert len(bbox) == 4, 'error: fov_mask.ndim > 2'
         self.bbox = bbox
-        self.ori = self.ori[bbox[0]:bbox[2], bbox[1]:bbox[3], :]
-        self.gt = self.gt[bbox[0]:bbox[2], bbox[1]:bbox[3]]
-        self.fov_mask = self.fov_mask[bbox[0]:bbox[2], bbox[1]:bbox[3]]
-        self.pred = self.pred[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+        if mode == 'all':
+            self.ori = self.ori[bbox[0]:bbox[2], bbox[1]:bbox[3], :]
+            self.gt = self.gt[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+            self.fov_mask = self.fov_mask[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+            self.pred = self.pred[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+        elif mode == 'ori':
+            self.ori = self.ori[bbox[0]:bbox[2], bbox[1]:bbox[3], :]
+    def get_bbox(self):
+        bbox = regionprops(label_image = self.fov_mask)[0].bbox
+        return bbox
 
 class RetinalDataset():
     # class whos instance is a retinal dataset like DRIVE = RetinalDataset(...)
-    def __init__(self, name, visualize = False, cropped = True):
+    def __init__(self, name, visualize = False, cropped = False):
         assert name in ['DRIVE', 'CHASEDB', 'HRF', 'STARE'], 'name must be in DRIVE, CHASEDB, HRF, STARE, got f{name}'
         self.name = name
         self.cropped = cropped
@@ -83,7 +90,7 @@ def get_DRIVE(self, cropped):
             ori = io.imread(os.path.join(DRD, 'DRIVE', 'images', img_name))
             fov_mask = io.imread(os.path.join(DRD, 'DRIVE', 'masks', f'{ID}_mask.gif'))
             gt = io.imread(os.path.join(DRD, 'DRIVE', 'manual', f'{ID}_manual1.gif'))
-            pred = io.imread(os.path.join(DRD, 'DRIVE', 'preds', f'{ID}.png'))
+            pred = np.load(os.path.join(DRD, 'DRIVE', 'preds', f'{ID}.npy'))
             drive_instance = single_data(ID, ori, fov_mask, gt, split)
             drive_instance.pred = pred
             if cropped : drive_instance.crop2fov()

@@ -48,7 +48,7 @@ class RetinalGAT(nn.Module):
         if output_layer:
             self.output_layer = nn.Sequential(nn.Conv2d(num_of_bboxes, num_of_bboxes, 3,1,1, groups = num_of_bboxes), nn.ReLU6())
     
-        self.input_layer = nn.Sequential(nn.Conv2d(3,8,3,1,1), nn.ReLU6(),
+        self.input_layer = nn.Sequential(nn.Conv2d(4,8,3,1,1), nn.ReLU6(),
                                          nn.Conv2d(8,8,3,1,1), nn.ReLU6(),
                                          nn.Conv2d(8,1,3,1,1), nn.ReLU6())
 
