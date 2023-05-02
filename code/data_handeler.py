@@ -90,7 +90,7 @@ def get_DRIVE(self, cropped):
             ori = io.imread(os.path.join(DRD, 'DRIVE', 'images', img_name))
             fov_mask = io.imread(os.path.join(DRD, 'DRIVE', 'masks', f'{ID}_mask.gif'))
             gt = io.imread(os.path.join(DRD, 'DRIVE', 'manual', f'{ID}_manual1.gif'))
-            pred = np.load(os.path.join(DRD, 'DRIVE', 'preds', f'{ID}.npy'))
+            pred = np.load(os.path.join(DRD, 'DRIVE', 'preds', f'{ID}.npy')) if os.path.isfile(os.path.join(DRD, 'DRIVE', 'preds', f'{ID}.npy')) else None
             drive_instance = single_data(ID, ori, fov_mask, gt, split)
             drive_instance.pred = pred
             if cropped : drive_instance.crop2fov()

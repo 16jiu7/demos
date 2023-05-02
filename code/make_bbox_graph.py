@@ -12,8 +12,9 @@ from skimage.measure import regionprops, label
 from skimage.util import img_as_ubyte, img_as_bool, img_as_float32
 from skimage.filters import threshold_minimum, threshold_otsu
 from skimage import draw
-from skimage.morphology import remove_small_objects
+from skimage.morphology import remove_small_objects, thin
 from skimage.exposure import equalize_adapthist
+from skimage.transform import probabilistic_hough_line
 import skimage.io as io
 import numpy as np
 import networkx as nx
@@ -21,6 +22,7 @@ from data_handeler import RetinalDataset
 import random
 import matplotlib.pyplot as plt
 from datetime import datetime
+from bwmorph import bwmorph
 
 def get_bboxes_from_pred(pred, n_bboxes = 1000, params = {'threshold': 'otsu', 'neg_iso_size': 6, 'n_slic_pieces': 700,\
                                                          'remove_keep': 36}):
@@ -155,23 +157,75 @@ def vis_bbox_graph(bboxes, graph, background, save_dir):
         draw.set_color(background, (rr, cc), color = (0,0,255))
     io.imsave(save_dir, img_as_ubyte(background))
 
-def patch_CLAHE(pred, win_size = 50, stride = 25):
+
+def vis_lines(background, lines):
+    if background.dtype == np.float32: background = img_as_ubyte(background)
+    if background.ndim == 2: background = np.stack([background] * 3, axis = -1)
+    if not isinstance(lines, list): lines = [lines]
+    for line in lines:
+        r0, c0, r1, c1 = line[0][0], line[0][1], line[1][0], line[1][1]
+        rr, cc = draw.line(r0,c0,r1,c1)
+        draw.set_color(background, (rr, cc), color = (0,0,255))
+        
+    points = []
+    for line in lines: points.append(line[0]), points.append(line[1])
+    points = sorted(points, key = lambda x : x[0])
+    for point in points:
+        rr, cc = draw.disk(point, radius = 2)
+        draw.set_color(background, (rr, cc), color = (255, 0, 0))    
+    return background    
+
+def patch_CLAHE(pred, n_pieces = 8):
     assert pred.ndim == 2
     H, W = pred.shape[0], pred.shape[1]
-    
-    return adapted
+    h, w = H // n_pieces, W // n_pieces
+    for i in range(n_pieces):
+        for j in range(n_pieces):
+            patch = pred[i*h : (i+1) * h, j*w:(j+1) * w]
+            if patch.sum() > 10:
+                pred[i*h : (i+1) * h, j*w:(j+1) * w] = equalize_adapthist(patch)
+    return pred
 
 
 drives = RetinalDataset('DRIVE').all_data
 
 for drive in drives:
-    adapted_pred = equalize_adapthist(drive.pred) # CLAHE will enhance tiny vessels
-    thre1 = threshold_minimum(drive.pred)
-    print(thre1)
-    thre2 = threshold_minimum(adapted_pred)
-    print(thre2)
-    io.imsave(f'test/{drive.ID}_adapted.png', adapted_pred)
-    io.imsave(f'test/{drive.ID}.png', drive.pred)
+    pred = drive.pred
+    thre1 = threshold_otsu(pred)
+    #io.imsave(f'test/{drive.ID}.png', pred)
+    #io.imsave(f'test/{drive.ID}_adapted.png', adapted_pred)
+    patch_adapted = patch_CLAHE(pred)
+    thre2 = threshold_otsu(patch_adapted)
+    pred_bin = pred > thre1
+    low_intens = pred * (1-pred_bin)
+    low_intens_bin = low_intens > threshold_otsu(low_intens)
+    pred_bin_low = low_intens_bin + pred_bin
+    patch_adapted_bin = patch_adapted > thre2
+    skel = thin(pred_bin_low)
+    skel = remove_small_objects(skel, 16, connectivity=2)
+    
+    endpoints = bwmorph(skel, 'endpoints')
+    branchpoints = bwmorph(skel, 'branchpoints')
+    end_branch = endpoints + branchpoints
+    points = np.argwhere(end_branch == True)
+    
+    
+    lines = probabilistic_hough_line(skel, threshold=10, line_length = 3, line_gap = 3)
+    lines = [((line[0][1], line[0][0]), (line[1][1],line[1][0])) for line in lines]
+    lines_pred = vis_lines(drive.pred, lines)
+    #io.imsave(f'test/{drive.ID}_lines.png', lines_pred) 
+    io.imsave(f'test/{drive.ID}end_branch.png', end_branch) 
+    
+    # io.imsave(f'test/{drive.ID}.png', pred)
+    # io.imsave(f'test/{drive.ID}_patch_adapted_bin.png', patch_adapted_bin)
+    # io.imsave(f'test/{drive.ID}_pred_bin.png', pred_bin)
+    # io.imsave(f'test/{drive.ID}_pred_bin_low.png', pred_bin_low)
+    io.imsave(f'test/{drive.ID}_skel.png', skel)
+
+    
+    
+    # io.imsave(f'test/{drive.ID}_adapted.png', adapted)
+    
     # bboxes, certain_pred = get_bboxes_from_pred(drive.pred)
     # graph = add_edges(bboxes)
     # vis_bbox_graph(bboxes, graph, drive.pred, save_dir = f'test/{drive.ID}_graph.png')
