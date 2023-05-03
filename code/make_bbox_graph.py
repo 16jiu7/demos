@@ -175,6 +175,15 @@ def vis_lines(background, lines):
         draw.set_color(background, (rr, cc), color = (255, 0, 0))    
     return background    
 
+def vis_points(background, points):
+    if background.dtype == np.float32: background = img_as_ubyte(background)
+    if background.ndim == 2: background = np.stack([background] * 3, axis = -1)
+    if not isinstance(points, list): points = [points]
+    for point in points:
+        rr, cc = draw.disk(point, radius = 2)
+        draw.set_color(background, (rr, cc), color = (255, 0, 0))    
+    return img_as_ubyte(background)   
+
 def patch_CLAHE(pred, n_pieces = 8):
     assert pred.ndim == 2
     H, W = pred.shape[0], pred.shape[1]
@@ -186,41 +195,79 @@ def patch_CLAHE(pred, n_pieces = 8):
                 pred[i*h : (i+1) * h, j*w:(j+1) * w] = equalize_adapthist(patch)
     return pred
 
+def p_near_ps(p1, points, threshold):
+    # decide if p is near to any point in points
+    for p2 in points:
+        if abs(p1[0] - p2[0]) <= threshold and abs(p1[1] - p2[1]) <= threshold: 
+            return True
+    return False
 
-drives = RetinalDataset('DRIVE').all_data
+def remove_nears(points, threshold):
+    # remove p in points if they are close
+    points = sorted(points, key = lambda x : x[0])
+    remove_idx = []
+    for i, p in enumerate(points):
+        others = points.copy()
+        others.pop(i)
+        if p_near_ps(p, others, threshold) : remove_idx.append(i)
+    points = [points[i] for i in range(len(points)) if i not in remove_idx]    
+    return points
+    
 
-for drive in drives:
-    pred = drive.pred
+def get_bbox_cpoints(pred, patch_size = 17):
+    # get skel which keeps tiny vessels
+    pred = equalize_adapthist(pred)
     thre1 = threshold_otsu(pred)
-    #io.imsave(f'test/{drive.ID}.png', pred)
-    #io.imsave(f'test/{drive.ID}_adapted.png', adapted_pred)
-    patch_adapted = patch_CLAHE(pred)
-    thre2 = threshold_otsu(patch_adapted)
     pred_bin = pred > thre1
     low_intens = pred * (1-pred_bin)
     low_intens_bin = low_intens > threshold_otsu(low_intens)
     pred_bin_low = low_intens_bin + pred_bin
-    patch_adapted_bin = patch_adapted > thre2
     skel = thin(pred_bin_low)
     skel = remove_small_objects(skel, 16, connectivity=2)
-    
+    skel = skel.astype(bool)
+    # get end & branch points
     endpoints = bwmorph(skel, 'endpoints')
     branchpoints = bwmorph(skel, 'branchpoints')
     end_branch = endpoints + branchpoints
-    points = np.argwhere(end_branch == True)
+    end_branch_points = (np.argwhere(end_branch == True)).tolist()
+    # get v-grid points
+    all_skel_points = (np.argwhere(skel == True)).tolist()
+    height = pred.shape[0]
+    grid_width = (patch_size - 1) // 1
+    grids = [i*grid_width for i in range((height // grid_width) + 1)]
+    v_grid_points = list(filter(lambda x : x[0] in grids, all_skel_points))
+    v_grid_points = remove_nears(v_grid_points, threshold = grid_width // 2)
+    v_grid_points = list(filter(lambda x : not p_near_ps(x, end_branch_points, threshold = grid_width // 2), v_grid_points))
+    # v_grid_point should dist from all end_branch_points for at least grid_width / 2
+    # get h-grid points
+    h_grid_points = list(filter(lambda x : x[1] in grids, all_skel_points))
+    h_grid_points = remove_nears(h_grid_points, threshold = grid_width // 2)
+    h_grid_points = list(filter(lambda x : not p_near_ps(x, end_branch_points + v_grid_points, threshold = grid_width // 2), h_grid_points))
+    bbox_cpoints = end_branch_points + v_grid_points + h_grid_points
+    #bbox_cpoints = sorted(bbox_cpoints, key = lambda x : x[0])
+    return skel, bbox_cpoints
+
     
+drives = RetinalDataset('DRIVE').all_data
+
+for drive in drives:
+    pred = drive.pred
+    start = datetime.now()
+    skel, points = get_bbox_cpoints(pred) # 120-150 ms
+    end = datetime.now()
+    print(f'time {int((end-start).total_seconds()*1000)} ms')
     
-    lines = probabilistic_hough_line(skel, threshold=10, line_length = 3, line_gap = 3)
-    lines = [((line[0][1], line[0][0]), (line[1][1],line[1][0])) for line in lines]
-    lines_pred = vis_lines(drive.pred, lines)
-    #io.imsave(f'test/{drive.ID}_lines.png', lines_pred) 
-    io.imsave(f'test/{drive.ID}end_branch.png', end_branch) 
+    print(len(points))
+    io.imsave(f'test/{drive.ID}_points.png', vis_points(skel, points))
+    # lines = probabilistic_hough_line(skel, threshold=10, line_length = 3, line_gap = 3)
+
+    #io.imsave(f'test/{drive.ID}_lines.png', lines_pred)  
     
     # io.imsave(f'test/{drive.ID}.png', pred)
     # io.imsave(f'test/{drive.ID}_patch_adapted_bin.png', patch_adapted_bin)
     # io.imsave(f'test/{drive.ID}_pred_bin.png', pred_bin)
     # io.imsave(f'test/{drive.ID}_pred_bin_low.png', pred_bin_low)
-    io.imsave(f'test/{drive.ID}_skel.png', skel)
+    io.imsave(f'test/{drive.ID}_skel.png', img_as_ubyte(skel))
 
     
     
