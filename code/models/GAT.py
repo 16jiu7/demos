@@ -4,6 +4,7 @@ from torch.autograd import Variable
 import torch.nn as nn
 import torch
 from torchvision.transforms import ToTensor
+from torch.nn import ConstantPad2d
 
 class RetinalGAT(nn.Module):
     def __init__(self, 
@@ -16,9 +17,10 @@ class RetinalGAT(nn.Module):
                  gat_dropout=0.2, 
                  gat_log_attention_weights=False,
                  # other params:
-                 num_of_bboxes = 900,
-                 node_feats_drop = 0.2,
-                 output_layer = True
+                 num_of_bboxes = 1000,
+                 node_size = 17,
+                 input_dim = 4,
+                 input_layer_exp = 6
                  
                      ):
         super().__init__()
@@ -43,59 +45,69 @@ class RetinalGAT(nn.Module):
 
         self.gat_net = nn.Sequential(*gat_layers)
         self.num_of_bboxes = num_of_bboxes
-        #self.pos_embed = nn.Parameter(torch.zeros(num_of_bboxes, gat_num_features_per_layer[0])) # 1D positional embedding as in ViT
-        self.node_feats_drop = nn.Dropout(node_feats_drop) if node_feats_drop is not None else None
-        if output_layer:
-            self.output_layer = nn.Sequential(nn.Conv2d(num_of_bboxes, num_of_bboxes, 3,1,1, groups = num_of_bboxes), nn.ReLU6())
-    
-        self.input_layer = nn.Sequential(nn.Conv2d(4,8,3,1,1), nn.ReLU6(),
-                                         nn.Conv2d(8,8,3,1,1), nn.ReLU6(),
-                                         nn.Conv2d(8,1,3,1,1), nn.ReLU6())
+        self.node_size = node_size
+        self.input_dim = input_dim
+        self.input_layer_exp = input_layer_exp
+        hidden_dim = round(self.input_dim * self.input_layer_exp)
+        self.input_layer = nn.Sequential(
+            # inverted residual block from mobilenet v2 
+            nn.Conv2d(self.input_dim, hidden_dim, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(hidden_dim),
+            nn.ReLU6(inplace=True),
+            nn.Conv2d(hidden_dim, hidden_dim, 3, 1, 1, groups=hidden_dim, bias=False),
+            nn.BatchNorm2d(hidden_dim),
+            nn.ReLU6(inplace=True),
+            nn.Conv2d(hidden_dim, 1, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(1),
+        )
 
                                          
-    def bbox_graph_to_torch(self, input_feats, graph):
-        # get node feats, transform edge list to torch tensor
+    def get_node_feats(self, input_feats, graph):
+        # get node feats from input_feats, transform edge list to torch tensor
         N,C,H,W = input_feats.shape
         assert N == 1 
         node_feats = []
+        half_node_size = self.node_size // 2
+        input_feats = ConstantPad2d(padding = half_node_size, value = 0)(input_feats)
         for node in graph.nodes: # {'center': (90, 374), 'bbox': (82, 366, 98, 382)}
             x, y = graph.nodes[node]['center']
-            patch = input_feats[:,:,x-8:x+9,y-8:y+9]
+            x, y = x + half_node_size, y + half_node_size
+            patch = input_feats[:,:,x - half_node_size:x + half_node_size + 1, y - half_node_size:y + half_node_size + 1]
             node_feats.append(patch.flatten().view(1, -1)) # 1,C,H,W -> C*H*W
         node_feats = torch.cat(node_feats, dim = 0)    
         edges = torch.Tensor([edge for edge in graph.edges]).long().view(2, -1)
         edges = edges.to(node_feats.device)
         return node_feats, edges
     
-    def place_bbox_back(self, shape, logits, graph):
+    def rebuild(self, shape, node_feats, graph, base):
         # pred.shape == 1,1,H,W
-        #logits = logits.view(logits.shape[0], 17, 17)
-        zeros = torch.zeros(shape, dtype = torch.float32).to(logits.device)
+        node_feats = node_feats.view(self.num_of_bboxes, self.node_size, self.node_size)
+        #zeros = torch.zeros(shape, dtype = torch.float32).to(node_feats.device)
+        half_node_size = self.node_size // 2
+        #zeros = ConstantPad2d(padding = half_node_size, value = 0)(zeros)
+        base = ConstantPad2d(padding = half_node_size, value = 0)(base)
+        count_map = torch.zeros_like(base)
         for idx, node in enumerate(graph.nodes()):
-            c_x, c_y = graph.nodes[node]['center']
-            zeros[c_x-8 : c_x+9, c_y-8 : c_y+9] = logits[idx, :, :]          
-        return zeros  
+            x, y = graph.nodes[node]['center']
+            x, y = x + half_node_size, y + half_node_size
+            base[:,:,x-half_node_size : x + half_node_size + 1, y - half_node_size : y + half_node_size + 1] = node_feats[idx, :, :]          
+            #count_map[:,:,x-half_node_size : x + half_node_size + 1, y - half_node_size : y + half_node_size + 1] += 1
+        #base = base / count_map
+        h, w = base.shape[2], base.shape[3]
+        return base[:,:,half_node_size:h - half_node_size, half_node_size:w - half_node_size]  
     
-    def forward(self, data, input_feats, graph, node_feats_act = True):
-        pred_tensor = ToTensor()(data.pred).unsqueeze(0).to(input_feats.device)
+    def forward(self, graph, input_feats, pred_tensor, tanh = False):
+        # input_feats goes through input_layer to reduce n_channels to just 1 and add residual using pred tensor
         input_feats = pred_tensor + self.input_layer(input_feats)
-        
-        node_feats, edges = self.bbox_graph_to_torch(input_feats, graph)
-        
-        pred_patches, _ = self.bbox_graph_to_torch(pred_tensor, graph)
-        pred_feats, _ = self.bbox_graph_to_torch(pred_tensor, graph)
-        
-        assert self.num_of_bboxes == node_feats.shape[0]
-        if self.node_feats_drop is not None: node_feats = self.node_feats_drop(node_feats)
-        data = (node_feats, edges)
-        out_node_feats, _ = self.gat_net(data)
-        out_node_feats = out_node_feats.view(self.num_of_bboxes, 17, 17)
-        # if hasattr(self, 'output_layer'):
-        #     out_node_feats = out_node_feats + self.output_layer(out_node_feats)  
-        #out_node_feats = out_node_feats + pred_patches.view(-1, 17, 17)   
-        if node_feats_act : out_node_feats = nn.Sigmoid()(out_node_feats)    
-        rebuilt = self.place_bbox_back(input_feats[0, 0].shape, out_node_feats, graph)
-
+        # get node feats from processed input_feats
+        node_feats, edges = self.get_node_feats(input_feats, graph)
+        # gat forward pass using node feats and graph
+        out_node_feats, _ = self.gat_net((node_feats, edges))
+        out_node_feats = nn.Tanh()(out_node_feats) if tanh else out_node_feats
+        # rebulid pred map using node feats processed by gat
+        rebuilt = self.rebuild(pred_tensor.shape, out_node_feats, graph, base = pred_tensor)
+        # rebuilt = nn.Sigmoid()(rebuilt) if tanh else rebuilt
+        # rebuilt = rebuilt + pred_tensor
         return rebuilt, out_node_feats
 
 
@@ -135,14 +147,8 @@ class GAT(torch.nn.Module):
         )
     # data is just a (in_nodes_features, edge_index) tuple, I had to do it like this because of the nn.Sequential:
     # https://discuss.pytorch.org/t/forward-takes-2-positional-arguments-but-3-were-given-for-nn-sqeuential-with-linear-layers/65698
-    def forward(self, data, with_feats = False):
-        if with_feats:
-            encoder, classifier = self.gat_net[:-1], self.gat_net[-1]
-            feats = encoder(data)
-            node_logits = classifier(feats)
-            return feats, node_logits
-        else:
-            return self.gat_net(data)
+    def forward(self, data):
+        return self.gat_net(data)
 
 class GATLayer(torch.nn.Module):
     """
@@ -372,9 +378,12 @@ class GATLayer(torch.nn.Module):
         Feel free to experiment - there may be better initializations depending on your problem.
 
         """
-        nn.init.xavier_uniform_(self.linear_proj.weight)
-        nn.init.xavier_uniform_(self.scoring_fn_target)
-        nn.init.xavier_uniform_(self.scoring_fn_source)
+        # nn.init.xavier_uniform_(self.linear_proj.weight)
+        # nn.init.xavier_uniform_(self.scoring_fn_target)
+        # nn.init.xavier_uniform_(self.scoring_fn_source)
+        nn.init.zeros_(self.linear_proj.weight)
+        nn.init.zeros_(self.scoring_fn_target)
+        nn.init.zeros_(self.scoring_fn_source)
 
         if self.bias is not None:
             torch.nn.init.zeros_(self.bias)

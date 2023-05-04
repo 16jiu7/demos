@@ -31,19 +31,15 @@ class single_data():
         self.bbox = self.get_bbox() # added by crop2fov function 
         self.pred = None
 
-    def crop2fov(self, mode = 'all'):
+    def crop2fov(self):
         assert self.pred is not None
-        assert mode in ['all', 'ori']
-        bbox = regionprops(label_image = self.fov_mask)[0].bbox
+        bbox = self.bbox
         assert len(bbox) == 4, 'error: fov_mask.ndim > 2'
-        self.bbox = bbox
-        if mode == 'all':
-            self.ori = self.ori[bbox[0]:bbox[2], bbox[1]:bbox[3], :]
-            self.gt = self.gt[bbox[0]:bbox[2], bbox[1]:bbox[3]]
-            self.fov_mask = self.fov_mask[bbox[0]:bbox[2], bbox[1]:bbox[3]]
-            self.pred = self.pred[bbox[0]:bbox[2], bbox[1]:bbox[3]]
-        elif mode == 'ori':
-            self.ori = self.ori[bbox[0]:bbox[2], bbox[1]:bbox[3], :]
+        self.ori_fov = self.ori[bbox[0]:bbox[2], bbox[1]:bbox[3], :]
+        self.gt_fov = self.gt[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+        self.fov_mask_fov = self.fov_mask[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+        self.pred_fov = self.pred[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+
     def get_bbox(self):
         bbox = regionprops(label_image = self.fov_mask)[0].bbox
         return bbox

@@ -23,6 +23,7 @@ import random
 import matplotlib.pyplot as plt
 from datetime import datetime
 from bwmorph import bwmorph
+from skimage.transform import resize
 
 def get_bboxes_from_pred(pred, n_bboxes = 1000, params = {'threshold': 'otsu', 'neg_iso_size': 6, 'n_slic_pieces': 700,\
                                                          'remove_keep': 36}):
@@ -139,14 +140,15 @@ def add_edges(bboxes, narrow = 100, n_links = 2):
         
     return nx.DiGraph(graph)    
 
-def vis_bbox_graph(bboxes, graph, background, save_dir):
+def vis_bbox_graph(graph, background):
     #vis_bbox_graph(bboxes, graph, np.stack([certain_pred]*3, axis = -1), save_dir = f'{data.ID}_bbox_vis.png')
     if background.ndim == 2:
         background = np.stack([background]*3, axis = -1)
     if background.dtype == np.float32: background = img_as_ubyte(background)    
-    for bbox in bboxes:
-        start = (bbox[0], bbox[1])
-        end = (bbox[2], bbox[3])
+    for node in graph.nodes:
+        cpoint = graph.nodes[node]['center']
+        start = (cpoint[0] - 8, cpoint[1] - 8)
+        end = (cpoint[0] + 8, cpoint[1] + 8)
         rr,cc = draw.rectangle_perimeter(start, end)
         draw.set_color(background, (rr, cc), color = (255,0,0))
     for edge in graph.edges:
@@ -155,7 +157,7 @@ def vis_bbox_graph(bboxes, graph, background, save_dir):
         r1, c1 = graph.nodes[end]['center']
         rr,cc = draw.line(r0, c0, r1, c1)
         draw.set_color(background, (rr, cc), color = (0,0,255))
-    io.imsave(save_dir, img_as_ubyte(background))
+    return img_as_ubyte(background)
 
 
 def vis_lines(background, lines):
@@ -247,18 +249,83 @@ def get_bbox_cpoints(pred, patch_size = 17):
     #bbox_cpoints = sorted(bbox_cpoints, key = lambda x : x[0])
     return skel, bbox_cpoints
 
-    
-drives = RetinalDataset('DRIVE').all_data
+def connect_bbox_cpoints(points, narrow = 100, n_links = 3):
+        assert narrow < 256, 'param narrow is too large'
+        centers = [(i, x[0], x[1]) for i, x in enumerate(points)]
 
-for drive in drives:
-    pred = drive.pred
-    start = datetime.now()
-    skel, points = get_bbox_cpoints(pred) # 120-150 ms
-    end = datetime.now()
-    print(f'time {int((end-start).total_seconds()*1000)} ms')
+        graph = nx.Graph()
+        
+        for i, x in enumerate(centers):
+            graph.add_node(centers[i][0], center = (centers[i][1], centers[i][2]))
+            
+        for node in graph.nodes:
+            node_x, node_y = graph.nodes[node]['center']
+            neighbors = list(filter(lambda x: (abs(node_x - x[1]) < narrow) and (abs(node_y - x[2]) < narrow) and (node != x[0]), centers))
+
+            X = np.array([neighbor[1] for neighbor in neighbors], dtype = np.uint16)
+            Y = np.array([neighbor[2] for neighbor in neighbors], dtype = np.uint16)
+            DST = (X - node_x) ** 2 + (Y - node_y) ** 2
+            rank = np.argsort(DST)
+            targets = [neighbors[idx][0] for idx in rank[:min(n_links, len(neighbors))]]
+
+            edges = [(node, target) for target in targets] 
+            graph.add_edges_from(edges)
+        
+        # connect isolated graph parts together
+        # for isolate graph parts, each node is linked to n_link nearest nodes in main part
+        N_components = nx.number_connected_components(graph)
+        components = nx.connected_components(graph)
+        components = sorted(components, key = len)
+        _, small_componets = components[-1], components[:N_components - 1]
+        all_nodes = set([i for i in range(len(graph.nodes))])
+        
+        for component in small_componets:
+            other_nodes = all_nodes - component
+            other_centers = [x for x in centers if x[0] in other_nodes]
+            for node in component:
+                node_x, node_y = graph.nodes[node]['center']
+                neighbors = list(filter(lambda x: (abs(node_x - x[1]) < narrow) and (abs(node_y - x[2]) < narrow), other_centers))
+                X = np.array([neighbor[1] for neighbor in neighbors], dtype = np.uint16)
+                Y = np.array([neighbor[2] for neighbor in neighbors], dtype = np.uint16)
+                DST = (X - node_x) ** 2 + (Y - node_y) ** 2
+                rank = np.argsort(DST)
+                targets = [neighbors[idx][0] for idx in rank[:min(1, len(neighbors))]]
+                edges = [(node, target) for target in targets] 
+                graph.add_edges_from(edges)  
+            
+        return nx.DiGraph(graph)    
+
+
+def make_bbox_graph(pred, n_bbox = 1000, patch_size = 17, narrow = 100, n_links = 2):
+    _, bbox_cpoints = get_bbox_cpoints(pred, patch_size)
     
-    print(len(points))
-    io.imsave(f'test/{drive.ID}_points.png', vis_points(skel, points))
+    if len(bbox_cpoints) > n_bbox:
+        random.shuffle(bbox_cpoints)
+        bbox_cpoints = bbox_cpoints[:n_bbox]
+    elif len(bbox_cpoints) < n_bbox:
+        random_cpoints = np.random.randint(low = patch_size // 2, \
+                                           high = min(pred.shape[0], pred.shape[1]) - patch_size // 2,\
+                                           size = (n_bbox - len(bbox_cpoints), 2))
+        bbox_cpoints += random_cpoints.tolist()    
+        
+    graph = connect_bbox_cpoints(bbox_cpoints, narrow, n_links)
+    return graph
+
+
+
+# drives = RetinalDataset('DRIVE').all_data
+
+# for drive in drives:
+#     pred = drive.pred
+#     bbox = drive.bbox
+#     pred = pred[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+#     pred = resize(pred, output_shape = [512, 512])
+#     start = datetime.now()
+#     graph = make_bbox_graph(pred)
+#     print(graph)
+#     end = datetime.now()
+#     print(f'time {int((end-start).total_seconds()*1000)} ms')
+#     io.imsave(f'test/{drive.ID}_graph.png' ,vis_bbox_graph(graph, pred))
     # lines = probabilistic_hough_line(skel, threshold=10, line_length = 3, line_gap = 3)
 
     #io.imsave(f'test/{drive.ID}_lines.png', lines_pred)  
@@ -267,7 +334,7 @@ for drive in drives:
     # io.imsave(f'test/{drive.ID}_patch_adapted_bin.png', patch_adapted_bin)
     # io.imsave(f'test/{drive.ID}_pred_bin.png', pred_bin)
     # io.imsave(f'test/{drive.ID}_pred_bin_low.png', pred_bin_low)
-    io.imsave(f'test/{drive.ID}_skel.png', img_as_ubyte(skel))
+    #io.imsave(f'test/{drive.ID}_skel.png', img_as_ubyte(skel))
 
     
     
@@ -276,8 +343,6 @@ for drive in drives:
     # bboxes, certain_pred = get_bboxes_from_pred(drive.pred)
     # graph = add_edges(bboxes)
     # vis_bbox_graph(bboxes, graph, drive.pred, save_dir = f'test/{drive.ID}_graph.png')
-
-# In[]
 
 
 
