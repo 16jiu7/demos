@@ -5,7 +5,7 @@ Created on Sat Apr 29 20:13:20 2023
 
 @author: jiu7
 """
-import os, pickle
+import os, pickle, sys
 from skimage.segmentation import slic
 from skimage.segmentation import mark_boundaries
 from skimage.measure import regionprops, label
@@ -270,7 +270,6 @@ def connect_bbox_cpoints(points, narrow = 100, n_links = 3):
 
             edges = [(node, target) for target in targets] 
             graph.add_edges_from(edges)
-        
         # connect isolated graph parts together
         # for isolate graph parts, each node is linked to n_link nearest nodes in main part
         N_components = nx.number_connected_components(graph)
@@ -296,22 +295,54 @@ def connect_bbox_cpoints(points, narrow = 100, n_links = 3):
         return nx.DiGraph(graph)    
 
 
-def make_bbox_graph(pred, n_bbox = 1000, patch_size = 17, narrow = 100, n_links = 2):
+def make_bbox_graph(pred, n_bbox = None, patch_size = 17, narrow = 100, n_links = 2):
     _, bbox_cpoints = get_bbox_cpoints(pred, patch_size)
+    
+    if n_bbox is None:
+        graph = connect_bbox_cpoints(bbox_cpoints, narrow, n_links)
+        return graph
     
     if len(bbox_cpoints) > n_bbox:
         random.shuffle(bbox_cpoints)
-        bbox_cpoints = bbox_cpoints[:n_bbox]
+        bbox_cpoints = bbox_cpoints[:n_bbox]   
+        graph = connect_bbox_cpoints(bbox_cpoints, narrow, n_links)
+    
     elif len(bbox_cpoints) < n_bbox:
+        graph = connect_bbox_cpoints(bbox_cpoints, narrow, n_links)
         random_cpoints = np.random.randint(low = patch_size // 2, \
                                            high = min(pred.shape[0], pred.shape[1]) - patch_size // 2,\
-                                           size = (n_bbox - len(bbox_cpoints), 2))
-        bbox_cpoints += random_cpoints.tolist()    
+                                           size = (n_bbox - len(bbox_cpoints), 2)).tolist()
+        random_nodes = [(i + len(graph.nodes), p[0], p[1]) for i, p in enumerate(random_cpoints)]    
         
-    graph = connect_bbox_cpoints(bbox_cpoints, narrow, n_links)
+        for node in random_nodes : graph.add_node(node[0], center = (node[1], node[2]))
     return graph
 
-
+def make_bbox_graph_small(pred, narrow = 10, n_links = 3, scale = 8, patch_size = 17):
+    # make bbox graph for downscaled feature map
+    # all pixels in downscaled feature map are considered as nodes
+    _, cpoints = get_bbox_cpoints(pred, patch_size = patch_size)
+    cpoints_d = [(p[0]/scale, p[1]/scale) for p in cpoints]
+    cpoints_d_int = [(int(p[0]), int(p[1])) for p in cpoints_d]
+    # find valid nodes
+    valid_idx = []
+    valid_p = []
+    for i, p in enumerate(cpoints_d_int):
+        if p not in valid_p:
+            valid_p.append(p)
+            valid_idx.append(i)     
+     
+    cpoints_d_int_valid = [cpoints_d_int[i] for i in valid_idx]
+    graph = connect_bbox_cpoints(cpoints_d_int_valid, narrow, n_links)
+    # add other grid nodes back, which are isolate nodes
+    new_shape = (pred.shape[0] // scale, pred.shape[1] // scale)
+    all_centers = [node[1]['center'] for node in graph.nodes(data = True)]
+    for i in range(new_shape[0]):
+        for j in range(new_shape[1]):
+            if (i, j) not in all_centers:
+                graph.add_node(len(all_centers) + 64*i + j, center = (i, j))
+    
+    return graph
+            
 
 # drives = RetinalDataset('DRIVE').all_data
 
@@ -321,28 +352,12 @@ def make_bbox_graph(pred, n_bbox = 1000, patch_size = 17, narrow = 100, n_links 
 #     pred = pred[bbox[0]:bbox[2], bbox[1]:bbox[3]]
 #     pred = resize(pred, output_shape = [512, 512])
 #     start = datetime.now()
-#     graph = make_bbox_graph(pred)
+#     graph = make_bbox_graph_small(pred)
 #     print(graph)
 #     end = datetime.now()
 #     print(f'time {int((end-start).total_seconds()*1000)} ms')
-#     io.imsave(f'test/{drive.ID}_graph.png' ,vis_bbox_graph(graph, pred))
-    # lines = probabilistic_hough_line(skel, threshold=10, line_length = 3, line_gap = 3)
+    #io.imsave(f'test/{drive.ID}_graph.png' ,vis_bbox_graph(graph, pred))
 
-    #io.imsave(f'test/{drive.ID}_lines.png', lines_pred)  
-    
-    # io.imsave(f'test/{drive.ID}.png', pred)
-    # io.imsave(f'test/{drive.ID}_patch_adapted_bin.png', patch_adapted_bin)
-    # io.imsave(f'test/{drive.ID}_pred_bin.png', pred_bin)
-    # io.imsave(f'test/{drive.ID}_pred_bin_low.png', pred_bin_low)
-    #io.imsave(f'test/{drive.ID}_skel.png', img_as_ubyte(skel))
-
-    
-    
-    # io.imsave(f'test/{drive.ID}_adapted.png', adapted)
-    
-    # bboxes, certain_pred = get_bboxes_from_pred(drive.pred)
-    # graph = add_edges(bboxes)
-    # vis_bbox_graph(bboxes, graph, drive.pred, save_dir = f'test/{drive.ID}_graph.png')
 
 
 

@@ -95,9 +95,7 @@ class TrainDataset(Dataset):
         # train mode: ori and gt are cropped to fov, resized to 512*512 and apply geo transforms 
         # ori goes through color jitter if there is any 
         if self.split == 'train':
-            data.crop2fov(mode = 'all')
-            data.ori = self.color_jitter(image = data.ori)['image'] if self.color_jitter is not None else data.ori
-            resized = geo_transforms_dropout(image = data.ori, mask = data.gt)
+            resized = geo_transforms_dropout(image = data.ori_fov, mask = data.gt_fov)
             ori = ToTensor()(resized['image'])
             gt = ToTensor()(resized['mask'])
             return ori, gt

@@ -105,11 +105,57 @@ class RetinalGAT(nn.Module):
         out_node_feats, _ = self.gat_net((node_feats, edges))
         out_node_feats = nn.Tanh()(out_node_feats) if tanh else out_node_feats
         # rebulid pred map using node feats processed by gat
-        rebuilt = self.rebuild(pred_tensor.shape, out_node_feats, graph, base = pred_tensor)
+        rebuilt = self.rebuild(pred_tensor.shape, out_node_feats, graph, base = torch.zeros_like(pred_tensor))
         # rebuilt = nn.Sigmoid()(rebuilt) if tanh else rebuilt
-        # rebuilt = rebuilt + pred_tensor
+        certain_pred = nn.Threshold(0.5,0.0)(pred_tensor)
+        rebuilt = (rebuilt + pred_tensor).clip(0,1)
         return rebuilt, out_node_feats
+    
+class GAT_classifier(torch.nn.Module):
 
+    def __init__(self, num_of_layers, num_heads_per_layer, num_features_per_layer, add_skip_connection=True, bias=True,
+                 dropout=0.6, log_attention_weights=False):
+        super().__init__()
+        assert num_of_layers == len(num_heads_per_layer) == len(num_features_per_layer) - 1, f'Enter valid arch params.'
+
+        num_heads_per_layer = [1] + num_heads_per_layer  
+        self.num_heads_per_layer = num_heads_per_layer
+        gat_layers = []  
+        for i in range(num_of_layers):
+            layer = GATLayer(
+                num_in_features = num_features_per_layer[i] * num_heads_per_layer[i],  # consequence of concatenation
+                num_out_features=num_features_per_layer[i+1],
+                num_of_heads=num_heads_per_layer[i+1],
+                concat = True,
+                activation=nn.ELU(),
+                dropout_prob=dropout,
+                add_skip_connection=add_skip_connection,
+                bias=bias,
+                log_attention_weights=log_attention_weights
+            )
+            gat_layers.append(layer)
+
+        self.gat_net = nn.Sequential(*gat_layers)
+        self.classifier = GATLayer(
+            num_in_features = num_heads_per_layer[-1] * num_features_per_layer[-1], 
+            num_out_features = 1, 
+            num_of_heads = num_heads_per_layer[-1],
+            concat = False,
+            activation = None,
+            dropout_prob = dropout,
+            add_skip_connection = add_skip_connection,
+            bias=bias,
+            log_attention_weights=log_attention_weights)    
+        
+    def forward(self, data, train = True):
+        input_feats, edges = data
+        feats = self.gat_net(data)[0]
+        feats_avg = feats.view(feats.shape[0], self.num_heads_per_layer[-1], -1)
+        feats_avg = torch.mean(feats_avg, dim = 1, keepdim = False)
+        if train:
+            logits = self.classifier((feats, edges))[0]
+            return feats_avg, torch.sigmoid(logits)
+        else: return feats_avg
 
 class GAT(torch.nn.Module):
     """

@@ -38,8 +38,9 @@ from albumentations.augmentations.geometric.transforms import Flip, Affine
 from albumentations.augmentations.transforms import ColorJitter
 from albumentations.augmentations.geometric.resize import Resize
 from albumentations.augmentations.dropout.coarse_dropout import CoarseDropout
+from segmentation_models_pytorch.losses import JaccardLoss
 
-patch_size = 13
+patch_size = 9
 
 def setup_random_seed(seed):
      torch.manual_seed(seed)
@@ -198,10 +199,16 @@ def post_process(pred, gt, fov_mask, bbox):
     out = out * fov_mask
     return out
 
+def JBCE_loss(y_pred, y_true):
+    loss1 = torch.nn.BCEWithLogitsLoss()(y_pred, y_true)
+    loss2 = JaccardLoss(mode = 'binary')(y_pred, y_true)
+    return loss1 + 0.3 * loss2
+
 # In[]
 setup_random_seed(500)    
 TRAIN_DATASET = 'DRIVE'
-criterion = torch.nn.BCEWithLogitsLoss()
+#criterion = torch.nn.BCEWithLogitsLoss()
+criterion = JBCE_loss
 n_epoch = 150
 optimizer= torch.optim.Adam(gnn.parameters(), lr = 5e-3, weight_decay = 0)
 lr_scheduler = CosineAnnealingLR(optimizer, T_max = n_epoch)
